@@ -13,6 +13,9 @@
 #include <boost/thread.hpp>
 #include <cds/container/details/base.h>
 #include <cds/compiler/timestamp.h>
+#include <string.h>
+#include <algorithm>
+#include <fstream>
 
 namespace cds { namespace container {
 
@@ -46,6 +49,7 @@ namespace cds { namespace container {
  	template <typename T, typename Traits = cds::container::timestamped_deque::traits>
 	class Timestamped_deque {
  		class ThreadBuffer;
+
  		struct buffer_node;
  		struct node {
  			unsigned long timestamp;
@@ -66,6 +70,9 @@ namespace cds { namespace container {
 			std::atomic<int> freedAmount;
 			std::atomic<int> pushedAmount;
 			std::atomic<int> delayedToFree;
+			std::atomic<int> delayedFromDelete;
+			std::atomic<int> delayedFromInsert;
+			std::atomic<int> notAllowedUnlinking;
 
 			Statistic() {
 				failedPopLeft.store(0);
@@ -80,11 +87,16 @@ namespace cds { namespace container {
 				freedAmount.store(0);
 				pushedAmount.store(0);
 				delayedToFree.store(0);
+				delayedFromDelete.store(0);
+				delayedFromInsert.store(0);
+				notAllowedUnlinking.store(0);
 			}
 		};
 
 
 	public:
+		class Logger;
+		class EndlessLoopException;
 	 	typedef T value_type;
 	 	typedef Traits traits;
 	 	typedef typename cds::details::Allocator<T, typename traits::allocator> allocator;
@@ -106,6 +118,7 @@ namespace cds { namespace container {
  		bnode*** lastLefts;
  		bnode*** lastRights;
  		bool* wasEmpty;
+		Logger *logger;
 
 
  		boost::thread_specific_ptr<int> threadIndex;
@@ -147,9 +160,9 @@ namespace cds { namespace container {
  		bool tryRemove(guard& toRemove, bool fromL, bool& success) {
 			 guard candidate, startCandidate, startPoint;
 			 candidate.clear();
-			startCandidate.clear();
-			startPoint.clear();
-			toRemove.clear();
+			 startCandidate.clear();
+			 startPoint.clear();
+			 toRemove.clear();
 			 bnode *b = candidate.get<bnode>();
 			 bool empty = true, isFound = false;
 			 success = true;
@@ -161,19 +174,21 @@ namespace cds { namespace container {
 				 if(localBuffers[i].get(candidate, startCandidate, fromL)) {
 					 if(isMore(candidate.get<bnode>(), toRemove.get<bnode>(), fromL)) {
 						 isFound = true;
+						 empty = false;
 						 toRemove.copy(candidate);
 						 startPoint.copy(startCandidate);
 						 bufferIndex = i;
 					 }
-					 empty = empty && checkEmptyCondition(true, i);
 				 } else {
-					 empty = empty && checkEmptyCondition(false, i);
+
 				 }
 			}
-			empty = empty && wasEmpty[threadIND];
-			wasEmpty[threadIND] = isFound;
+			bool temp = wasEmpty[threadIND];
+			wasEmpty[threadIND] = empty;
+			empty = empty && temp;
 
-			if(doEmptyCheck())
+
+			if(doEmptyCheck() || empty)
 				return nullptr;
 
 			if(isFound) {
@@ -300,10 +315,13 @@ namespace cds { namespace container {
 		public:
 
 		Timestamped_deque() {
+			logger = new Logger();
 			maxThread = cds::gc::HP::max_thread_count();
 			localBuffers = new ThreadBuffer[maxThread];
-			for(int i=0; i< maxThread; i++)
+			for(int i=0; i< maxThread; i++) {
 				localBuffers[i].setStat(&stats);
+				localBuffers[i].setLogger(logger);
+			}
 			lastLefts = new bnode** [maxThread];
 			// Initializing arrays for detecting empty state of container
 			for(int i=0; i< maxThread; i++)
@@ -315,6 +333,7 @@ namespace cds { namespace container {
 			for(int i=0; i< maxThread; i++)
 				wasEmpty[i] = true;
 			lastFree.store(0);
+
 		}
 
 		~Timestamped_deque() {
@@ -328,28 +347,39 @@ namespace cds { namespace container {
 			delete [] lastRights;
 		}
 
+		Logger* getLogger() {
+			return logger;
+		}
+
+
 
 		bool push_back(value_type const& value) {
+//			logger->write("push_back");
 			return raw_push(value, true);
 		}
 
 		bool push_front(value_type const& value) {
+//			logger->write("push_front");
 			return raw_push(value, false);
 		}
 
 		bool push_back(value_type&& value ) {
+//			logger->write("push_back");
 			return raw_push(value, true);
 		}
 
 		bool push_front( value_type&& value	) {
+//			logger->write("push_front");
 			return raw_push(value, false);
 		}
 
 		bool pop_back(  value_type& val ) {
+//			logger->write("pop_back");
 			return raw_pop(val, true);
 		}
 
 		bool pop_front(  value_type& val ) {
+//			logger->write("pop_front");
 			return raw_pop(val, false);
 		}
 
@@ -379,7 +409,10 @@ namespace cds { namespace container {
 			std::cout << "Amount of empty pops     = " << stats.emptyPopLeft.load() + stats.emptyPopRight.load() << "\n";
 			std::cout << "Amount of failed pops    = " << stats.failedPopLeft.load() + stats.failedPopRight.load() << "\n";
 			std::cout << "Amount of freed nodes    = " << stats.freedAmount.load() << "\n";
-			std::cout << "Amount of delayed        = " << stats.freedAmount.load() << "\n";
+			std::cout << "Amount of delayed        = " << stats.delayedToFree.load() << "\n";
+			std::cout << "Amount of delayed insert = " << stats.delayedFromInsert.load() << "\n";
+			std::cout << "Amount of delayed delete = " << stats.delayedFromDelete.load() << "\n";
+			std::cout << "Amount of not allowed    = " << stats.notAllowedUnlinking.load() << "\n";
 			std::cout << "==================================================================================\n";
 			std::cout << "Amount of succesful left pops  = " << stats.successPopLeft.load() << "\n";
 			std::cout << "Amount of succesful right pops = " << stats.successPopRight.load() << "\n";
@@ -402,6 +435,7 @@ namespace cds { namespace container {
 		 					taken.store(false);
 		 					left.store(this);
 		 					right.store(this);
+							toInsert = false;
 
 		 				}
 
@@ -410,6 +444,7 @@ namespace cds { namespace container {
 		 				node* item;
 		 				int index;
 		 				std::atomic<bool> taken;
+						std::atomic<bool> toInsert;
 		 				bool isDeletedFromLeft;
 
 		 				bool wasAdded(bool fromL) {
@@ -512,14 +547,22 @@ namespace cds { namespace container {
 
 					void putToGarbage(buffer_node* node) {
 						countGarbage(node);
+
 						garbage_node* gNode = new garbage_node(node);
+						garbage_node* tmp;
+
+						gNode->item = node;
+						gNode->timestamp = platform::getTimestamp();
 						int place = findEmptyCell();
-						if( place == -1) {
-							// Phew
-							while(!tryToCleanGarbage()) {}
-							place = findEmptyCell();
-						}
-						garbageArray[place].store(gNode);
+						do {
+							tmp = nullptr;
+
+							if (place == -1) {
+								// Phew
+								while (!tryToCleanGarbage()) { }
+								place = findEmptyCell();
+							}
+						} while(garbageArray[place].compare_exchange_strong(tmp, gNode));
 
 					}
 
@@ -548,6 +591,35 @@ namespace cds { namespace container {
 						return false;
 					}
 
+					bool canBeUnlinked(buffer_node* node, bool fromL) {
+						guestCounter++;
+						buffer_node* cur = node;
+						if(fromL) {
+							do {
+								if(cur->taken.load() && !cur->toInsert.load() && cur->left.load() != leftMost.load()) {
+									cur = cur->left.load();
+								} else {
+									stats->notAllowedUnlinking++;
+									guestCounter--;
+									return false;
+								}
+							} while(cur->left.load() != cur);
+						} else {
+							do {
+								if(cur->taken.load() && !cur->toInsert.load() && cur->right.load() != rightMost.load()) {
+									cur = cur->right.load();
+								} else {
+									stats->notAllowedUnlinking++;
+									guestCounter--;
+									return false;
+								}
+							} while(cur->right.load() != cur);
+						}
+						guestCounter--;
+						return  true;
+
+					}
+
 		 			std::atomic<buffer_node*> leftMost;
 		 			std::atomic<buffer_node*> rightMost;
 		 			std::vector<buffer_node*> garbage;
@@ -555,7 +627,9 @@ namespace cds { namespace container {
 					int garbageSize;
 		 			long lastIndex;
 					std::atomic<int> guestCounter;
+					std::atomic<bool> inserting;
 					Statistic* stats;
+					Logger* logger;
 		 		public:
 
 		 			typedef typename cds::details::Allocator<ThreadBuffer::buffer_node, typename traits::buffernode_allocator> buffernode_allocator;
@@ -567,6 +641,7 @@ namespace cds { namespace container {
 		 				newNode->taken.store(true);
 		 				leftMost.store(newNode);
 		 				rightMost.store(newNode);
+						inserting.store(false);
 		 				guestCounter.store(0);
 						garbageArray = new std::atomic<garbage_node*>[garbageSize];
 
@@ -596,25 +671,40 @@ namespace cds { namespace container {
 						this->stats = stats;
 					}
 
+					void setLogger(Logger* log) {
+						logger = log;
+					}
+
 		 			void insertRight(node* timestamped) {
 		 				buffer_node* newNode = buffernode_allocator().New();
 		 				newNode->index = lastIndex;
 						newNode->item = timestamped;
 						lastIndex += 1;
-
+						inserting.store(true);
 						buffer_node* place = rightMost.load();
-						while(place->left.load() != place && place->taken.load())
-							place = place->left.load();
+						buffer_node* next = place->left.load();
+						place->toInsert.store(true);
+						next->toInsert.store(true);
+						while(place != leftMost.load() && next != place && place->taken.load()) {
+							place->toInsert.store(false);
+							place = next;
+							next = place->left.load();
+							next->toInsert.store(true);
+						}
+						if(next != place)
+							next->toInsert.store(false);
 						buffer_node* tail = place->right.load();
 						if(place->left.load() == place)
 							leftMost.store(place);
 						newNode->left.store(place);
 						place->right.store(newNode);
 						rightMost.store(newNode);
-
+						place->toInsert.store(false);
+						inserting.store(false);
 						if(tail != place) {
 							tail->isDeletedFromLeft = false;
 							putToGarbage(tail);
+							stats->delayedFromInsert++;
 						}
 
 
@@ -626,20 +716,31 @@ namespace cds { namespace container {
 		 				newNode->index = -lastIndex;
 						newNode->item = timestamped;
 						lastIndex += 1;
-
+						inserting.store(true);
 						buffer_node* place = leftMost.load();
-						while(place->right.load() != place && place->taken.load())
-							place = place->right.load();
+						buffer_node* next = place->right.load();
+						place->toInsert.store(true);
+						next->toInsert.store(true);
+						while(place != rightMost.load() && next != place && place->taken.load()) {
+							place->toInsert.store(false);
+							place = next;
+							next = place->right.load();
+							next->toInsert.store(true);
+						}
+						if(next != place)
+							next->toInsert.store(false);
 						buffer_node* tail = place->left.load();
 						if(place->right.load() == place)
 							rightMost.store(place);
 						newNode->right.store(place);
 						place->left.store(newNode);
 						leftMost.store(newNode);
-
+						place->toInsert.store(false);
+						inserting.store(false);
 						if(tail != place) {
 							tail->isDeletedFromLeft = true;
 							putToGarbage(tail);
+							stats->delayedFromInsert++;
 						}
 
 
@@ -649,11 +750,17 @@ namespace cds { namespace container {
 		 				return (fromL ? getLeft(finded, start) : getRight(finded, start));
 		 			}
 
+
+
 		 			bool getRight(guard& found, guard& start) {
 		 				guestCounter++;
 		 				buffer_node *oldRight = rightMost.load(),
 		 							*oldLeft = leftMost.load();
 		 				buffer_node* res = oldRight;
+						std::map<buffer_node*, bool> visited;
+						typename std::map<buffer_node*, bool>::iterator it;
+
+						visited.insert(std::pair<buffer_node*, bool>(res, true));
 
 		 				while(true) {
 		 					if(res->index < oldLeft->index ) {
@@ -669,6 +776,14 @@ namespace cds { namespace container {
 								return false;
 							}
 		 					res = res->left.load();
+							it = visited.find(res);
+
+							if(it == visited.end()) {
+								visited.insert(std::pair<buffer_node*, bool>(res, true));
+							} else {
+								logger->write("Endless loop");
+								throw EndlessLoopException(visited.size());
+							}
 		 				}
 						start.protect( std::atomic<buffer_node*>(oldRight));
 		 				guestCounter--;
@@ -680,6 +795,10 @@ namespace cds { namespace container {
 		 				buffer_node  *oldRight = rightMost.load(),
 									 *oldLeft = leftMost.load();
 						buffer_node* res = oldLeft;
+						std::map<buffer_node*, bool> visited;
+						typename std::map<buffer_node*, bool>::iterator it;
+
+						visited.insert(std::pair<buffer_node*, bool>(res, true));
 
 						while(true) {
 							if(res->index > oldRight->index) {
@@ -695,6 +814,14 @@ namespace cds { namespace container {
 								return false;
 							}
 							res = res->right.load();
+							it = visited.find(res);
+
+							if(it == visited.end()) {
+								visited.insert(std::pair<buffer_node*, bool>(res, true));
+							} else {
+								logger->write("Endless loop");
+								throw EndlessLoopException(visited.size());
+							}
 						}
 						start.protect( std::atomic<buffer_node*>(oldLeft));
 						guestCounter--;
@@ -712,10 +839,16 @@ namespace cds { namespace container {
 		 			bool tryRemoveRight(guard& takenNode, guard& start) {
 
 		 				buffer_node* node = takenNode.get<buffer_node>();
+						buffer_node* temp = node->right.load();
 		 				buffer_node* startPoint = start.get<buffer_node>();
 		 				bool t = false;
 		 				if(node->taken.compare_exchange_strong(t, true)) {
-		 					rightMost.compare_exchange_strong(startPoint, node);
+		 					if(rightMost.compare_exchange_strong(startPoint, node)) {
+								if( temp != node  && canBeUnlinked(node, false) && node->right.compare_exchange_strong(temp, node)) {
+									stats->delayedFromDelete++;
+									putToGarbage(temp);
+								}
+							}
 							tryToCleanGarbage();
 		 					return true;
 		 				}
@@ -724,11 +857,18 @@ namespace cds { namespace container {
 
 		 			bool tryRemoveLeft(guard& takenNode, guard& start) {
 		 				buffer_node* node = takenNode.get<buffer_node>();
+						buffer_node* temp = node->left.load();
 		 				buffer_node* startPoint = start.get<buffer_node>();
 
 		 				bool t = false;
 						if(node->taken.compare_exchange_strong(t, true)) {
-							leftMost.compare_exchange_strong(startPoint, node);
+							if(leftMost.compare_exchange_strong(startPoint, node)) {
+								if(temp != node  && canBeUnlinked(node, true) && node->left.compare_exchange_strong(temp, node)) {
+									stats->delayedFromDelete++;
+									temp->isDeletedFromLeft = true;
+									putToGarbage(temp);
+								}
+							}
 							tryToCleanGarbage();
 							return true;
 						}
@@ -737,8 +877,101 @@ namespace cds { namespace container {
 
 
 
-		 		};
-	};
+		 		}; // ThreadBuffer
+	public:
+				class Logger {
+				private:
+					struct LogNode {
+						std::string note;
+						unsigned long timestamp;
+						LogNode(std::string note, unsigned long timestamp):note(note), timestamp(timestamp) {
+						}
+					};
+
+					struct Comparator {
+						bool operator() (LogNode* l1, LogNode* l2) {
+							return l1->timestamp < l2->timestamp;
+						}
+					} comparator;
+
+					std::vector<std::vector<LogNode*>* > threads;
+					boost::thread_specific_ptr<int> threadIndex;
+					std::atomic<int> lastFree;
+					int maxThread;
+
+					int acquireIndex() {
+						int* temp = threadIndex.get();
+						if(temp == nullptr) {
+							int index = lastFree.load();
+							if(index >= maxThread)
+								return -1;
+							while(!lastFree.compare_exchange_strong(index, index + 1)) {
+								index = lastFree.load();
+							}
+							threadIndex.reset(new int(index));
+							return index;
+						}
+						return *temp;
+					}
+
+					bool sortFunc(LogNode* l1, LogNode* l2) {
+						return l1->timestamp > l2->timestamp;
+					}
+
+				public:
+					Logger() {
+						maxThread = cds::gc::HP::max_thread_count();
+						for(int i=0; i < maxThread; i++) {
+							threads.push_back(new std::vector<LogNode*>());
+						}
+					}
+
+					void write(std::string s) {
+						LogNode* node = new LogNode(s, platform::getTimestamp());
+						int index = acquireIndex();
+						threads.at(index)->push_back(node);
+					}
+
+					void printAll() {
+						std::vector<LogNode*> log;
+						for(int i=0; i < maxThread; i++) {
+							log.insert(log.end(), threads.at(i)->begin(), threads.at(i)->end());
+						}
+						std::sort(log.begin(), log.end(), comparator);
+						for (typename std::vector<LogNode*>::iterator it = log.begin() ; it != log.end(); ++it)
+							std::cout << (*it)->timestamp << ": " << (*it)->note << std::endl;
+
+					}
+
+					void printAll(std::ofstream& stream) {
+						std::vector<LogNode*> log;
+						for(int i=0; i < maxThread; i++) {
+							log.insert(log.end(), threads.at(i)->begin(), threads.at(i)->end());
+						}
+						std::sort(log.begin(), log.end(), comparator);
+						for (typename std::vector<LogNode*>::iterator it = log.begin() ; it != log.end(); ++it)
+							stream << (*it)->timestamp << ": " << (*it)->note << std::endl;
+					}
+
+
+
+
+
+				}; // Logger
+
+				class EndlessLoopException {
+					unsigned long mapSize;
+
+				public:
+					EndlessLoopException(unsigned long size): mapSize(size) {
+
+					}
+
+					unsigned long getMapSize() {
+						return mapSize;
+					}
+				};
+	};// Timestamped_deque
 }} // namespace cds::container
 
 #endif /* CDSLIB_CONTAINER_TIMESTAMPED_DEQUE_H_ */
