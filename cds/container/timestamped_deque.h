@@ -16,6 +16,7 @@
 #include <string.h>
 #include <algorithm>
 #include <fstream>
+#include <sstream>
 
 namespace cds { namespace container {
 
@@ -676,10 +677,13 @@ namespace cds { namespace container {
 					}
 
 		 			void insertRight(node* timestamped) {
+						std::stringstream ss;
+
 		 				buffer_node* newNode = buffernode_allocator().New();
 		 				newNode->index = lastIndex;
 						newNode->item = timestamped;
 						lastIndex += 1;
+						ss << "Insert right. Node:" << newNode ;
 						inserting.store(true);
 						buffer_node* place = rightMost.load();
 						buffer_node* next = place->left.load();
@@ -704,18 +708,23 @@ namespace cds { namespace container {
 						if(tail != place) {
 							tail->isDeletedFromLeft = false;
 							putToGarbage(tail);
+							ss << "  Unlinked!" << tail ;
 							stats->delayedFromInsert++;
 						}
+						logger->write(ss.str());
 
 
 
 		 			}
 
 		 			void insertLeft(node* timestamped) {
+						std::stringstream ss;
+
 		 				buffer_node* newNode = buffernode_allocator().New();
 		 				newNode->index = -lastIndex;
 						newNode->item = timestamped;
 						lastIndex += 1;
+						ss << "Insert left. Node:" << newNode ;
 						inserting.store(true);
 						buffer_node* place = leftMost.load();
 						buffer_node* next = place->right.load();
@@ -740,9 +749,10 @@ namespace cds { namespace container {
 						if(tail != place) {
 							tail->isDeletedFromLeft = true;
 							putToGarbage(tail);
+							ss << "  Unlinked!" << tail ;
 							stats->delayedFromInsert++;
 						}
-
+						logger->write(ss.str());
 
 		 			}
 
@@ -753,78 +763,96 @@ namespace cds { namespace container {
 
 
 		 			bool getRight(guard& found, guard& start) {
+						std::stringstream ss;
 		 				guestCounter++;
 		 				buffer_node *oldRight = rightMost.load(),
 		 							*oldLeft = leftMost.load();
 		 				buffer_node* res = oldRight;
+						buffer_node* lastOne = nullptr;
 						std::map<buffer_node*, bool> visited;
 						typename std::map<buffer_node*, bool>::iterator it;
+						ss << "Get right. Start with:" << oldRight ;
 
 						visited.insert(std::pair<buffer_node*, bool>(res, true));
 
 		 				while(true) {
 		 					if(res->index < oldLeft->index ) {
 								guestCounter--;
+								logger->write(ss.str());
 								return false;
 							}
 		 					if(!res->taken.load()) {
 								found.protect(std::atomic<buffer_node*>(res));
+								ss << " Finded:" << res;
 		 						break;
 		 					}
 		 					if(res->left.load() == res) {
 								guestCounter--;
+								logger->write(ss.str());
 								return false;
 							}
+							lastOne = res;
 		 					res = res->left.load();
 							it = visited.find(res);
 
 							if(it == visited.end()) {
 								visited.insert(std::pair<buffer_node*, bool>(res, true));
 							} else {
-								logger->write("Endless loop");
+								ss << "Endless loop from " << lastOne << " to " << res;
+								logger->write(ss.str());
 								throw EndlessLoopException(visited.size());
 							}
 		 				}
 						start.protect( std::atomic<buffer_node*>(oldRight));
 		 				guestCounter--;
+						logger->write(ss.str());
 						return true;
 		 			}
 
 		 			bool getLeft(guard& found, guard& start) {
+						std::stringstream ss;
 		 				guestCounter++;
 		 				buffer_node  *oldRight = rightMost.load(),
 									 *oldLeft = leftMost.load();
 						buffer_node* res = oldLeft;
+						buffer_node* lastOne = nullptr;
 						std::map<buffer_node*, bool> visited;
 						typename std::map<buffer_node*, bool>::iterator it;
+						ss << "Get left. Start with:" << oldLeft ;
 
 						visited.insert(std::pair<buffer_node*, bool>(res, true));
 
 						while(true) {
 							if(res->index > oldRight->index) {
 								guestCounter--;
+								logger->write(ss.str());
 								return false;
 							}
 							if(!res->taken.load()) {
 								found.protect(std::atomic<buffer_node*>(res));
+								ss << " Finded:" << res;
 								break;
 							}
 							if(res->right.load() == res) {
 								guestCounter--;
+								logger->write(ss.str());
 								return false;
 							}
+							lastOne = res;
 							res = res->right.load();
 							it = visited.find(res);
 
 							if(it == visited.end()) {
 								visited.insert(std::pair<buffer_node*, bool>(res, true));
 							} else {
-								logger->write("Endless loop");
+								ss << "Endless loop from " << lastOne << " to " << res;
+								logger->write(ss.str());
 								throw EndlessLoopException(visited.size());
 							}
 						}
 						start.protect( std::atomic<buffer_node*>(oldLeft));
 						guestCounter--;
+						logger->write(ss.str());
 						return true;
 					}
 
@@ -837,41 +865,51 @@ namespace cds { namespace container {
 		 			}
 
 		 			bool tryRemoveRight(guard& takenNode, guard& start) {
-
+						std::stringstream ss;
 		 				buffer_node* node = takenNode.get<buffer_node>();
 						buffer_node* temp = node->right.load();
 		 				buffer_node* startPoint = start.get<buffer_node>();
+						ss << "TryRemoveRight. To remove: " <<  node << "; Old right:" << temp << "; To unlink: " << temp;
 		 				bool t = false;
 		 				if(node->taken.compare_exchange_strong(t, true)) {
 		 					if(rightMost.compare_exchange_strong(startPoint, node)) {
+								ss << "  New right!";
 								if( temp != node  && canBeUnlinked(node, false) && node->right.compare_exchange_strong(temp, node)) {
 									stats->delayedFromDelete++;
+									ss << "  Unlinked!";
 									putToGarbage(temp);
 								}
 							}
 							tryToCleanGarbage();
+							logger->write(ss.str());
 		 					return true;
 		 				}
+						logger->write(ss.str());
 		 				return false;
 		 			}
 
 		 			bool tryRemoveLeft(guard& takenNode, guard& start) {
+						std::stringstream ss;
 		 				buffer_node* node = takenNode.get<buffer_node>();
 						buffer_node* temp = node->left.load();
 		 				buffer_node* startPoint = start.get<buffer_node>();
-
+						ss << "TryRemoveLeft. To remove: " <<  node << "; Old left:" << temp << "; To unlink: " << temp;
 		 				bool t = false;
 						if(node->taken.compare_exchange_strong(t, true)) {
 							if(leftMost.compare_exchange_strong(startPoint, node)) {
+								ss << "  New left!";
 								if(temp != node  && canBeUnlinked(node, true) && node->left.compare_exchange_strong(temp, node)) {
 									stats->delayedFromDelete++;
+									ss << "  Unlinked!";
 									temp->isDeletedFromLeft = true;
 									putToGarbage(temp);
 								}
 							}
 							tryToCleanGarbage();
+							logger->write(ss.str());
 							return true;
 						}
+						logger->write(ss.str());
 						return false;
 		 			}
 
@@ -884,7 +922,8 @@ namespace cds { namespace container {
 					struct LogNode {
 						std::string note;
 						unsigned long timestamp;
-						LogNode(std::string note, unsigned long timestamp):note(note), timestamp(timestamp) {
+						int thread;
+						LogNode(std::string note, unsigned long timestamp, int thread):note(note), timestamp(timestamp), thread(thread) {
 						}
 					};
 
@@ -927,8 +966,8 @@ namespace cds { namespace container {
 					}
 
 					void write(std::string s) {
-						LogNode* node = new LogNode(s, platform::getTimestamp());
 						int index = acquireIndex();
+						LogNode* node = new LogNode(s, platform::getTimestamp(), index);
 						threads.at(index)->push_back(node);
 					}
 
@@ -939,7 +978,7 @@ namespace cds { namespace container {
 						}
 						std::sort(log.begin(), log.end(), comparator);
 						for (typename std::vector<LogNode*>::iterator it = log.begin() ; it != log.end(); ++it)
-							std::cout << (*it)->timestamp << ": " << (*it)->note << std::endl;
+							std::cout << (*it)->timestamp << "-" << (*it)->thread << ": " << (*it)->note << std::endl;
 
 					}
 
@@ -950,7 +989,7 @@ namespace cds { namespace container {
 						}
 						std::sort(log.begin(), log.end(), comparator);
 						for (typename std::vector<LogNode*>::iterator it = log.begin() ; it != log.end(); ++it)
-							stream << (*it)->timestamp << ": " << (*it)->note << std::endl;
+							stream << (*it)->timestamp << "-" << (*it)->thread << ": " << (*it)->note << std::endl;
 					}
 
 
