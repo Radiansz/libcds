@@ -53,6 +53,21 @@ namespace cds { namespace container {
  			node(): timestamp(0) {}
  		};
 
+		class Detector {
+			ThreadBuffer* property;
+
+		public:
+			Detector(ThreadBuffer* buffer): property(buffer) {
+
+			}
+
+			~Detector() {
+				property->deoccupy();
+			}
+		};
+
+
+
 		struct Statistic {
 			std::atomic<int> failedPopLeft;
 			std::atomic<int> failedPopRight;
@@ -109,6 +124,7 @@ namespace cds { namespace container {
 
 
  		boost::thread_specific_ptr<int> threadIndex;
+		boost::thread_specific_ptr<Detector> detector;
 
  		int acquireIndex() {
  			int* temp = threadIndex.get();
@@ -120,6 +136,7 @@ namespace cds { namespace container {
  					index = lastFree.load();
  				}
  				threadIndex.reset(new int(index));
+				detector.reset(new Detector(&localBuffers[index]));
  				return index;
  			}
  			return *temp;
@@ -555,8 +572,18 @@ namespace cds { namespace container {
 					int garbageSize;
 		 			long lastIndex;
 					std::atomic<int> guestCounter;
+					std::atomic<bool> occupied;
 					Statistic* stats;
 		 		public:
+					bool tryOccupy() {
+						bool temp = false;
+						return occupied.compare_exchange_strong(temp, true);
+					}
+
+					void deoccupy() {
+						std::cout << "deocupied" << std::endl;
+						occupied.store(false);
+					}
 
 		 			typedef typename cds::details::Allocator<ThreadBuffer::buffer_node, typename traits::buffernode_allocator> buffernode_allocator;
 		 			ThreadBuffer() : lastIndex(1) {
@@ -738,6 +765,67 @@ namespace cds { namespace container {
 
 
 		 		};
+
+		class BufferList {
+			struct List_node {
+				std::atomic<List_node*> next;
+				ThreadBuffer* buffer;
+				std::atomic<bool> occupied;
+
+				bool tryOccupy() {
+					bool temp = false;
+					return occupied.compare_exchange_strong(temp, true);
+				}
+
+				void deoccupy() {
+					std::cout << "deocupied" << std::endl;
+					occupied.store(false);
+				}
+
+				List_node(ThreadBuffer* buffer): buffer(buffer) {
+					occupied.store(false);
+					next.store(nullptr);
+				}
+			};
+
+			std::atomic<List_node*> head;
+
+			List_node* findTail() {
+				List_node* cur = head.load();
+				while(cur->next.load() != nullptr)
+					cur = cur->next.load();
+				return cur;
+			}
+
+			bool tryInsert(List_node* tail, List_node* node) {
+				List_node* temp = nullptr;
+				return tail->next.compare_exchange_strong(temp, node);
+			}
+
+			List_node* findOrCreate() {
+				List_node* cur = head.load();
+				while(cur->next.load() != nullptr) {
+					if(cur->tryOccupy())
+						return cur;
+					cur = cur->next.load();
+				}
+				List_node *node = new List_node(new ThreadBuffer()),
+				          *tail = findTail();
+				while(!tryInsert(tail, node))
+					tail = findTail();
+				return node;
+			}
+
+		public:
+			BufferList() {
+				head.store(new List_node( new ThreadBuffer()));
+			}
+
+			ThreadBuffer* demandBuffer() {
+				List_node* thing = findOrCreate();
+				return thing->buffer;
+			}
+		}; //BufferList
 	};
 }} // namespace cds::container
 
