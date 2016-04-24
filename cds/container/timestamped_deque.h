@@ -87,6 +87,10 @@ namespace cds {
                     delayedToFree.store(0);
                     amountOfBuffers.store(1);
                 }
+
+                ~Statistic() {
+                    std::cout << "~Statistic" << std::endl;
+                }
             };
 
 
@@ -108,7 +112,7 @@ namespace cds {
             }
 
             Statistic stats;
-            ThreadBuffer *localBuffers;
+
             Buffer_list bufferList;
             std::atomic<int> lastFree;
             int maxThread;
@@ -146,16 +150,16 @@ namespace cds {
             /*
              *  Helping function for checking emptiness
              */
-            bool checkEmptyCondition(bool found, int i) {
-                int threadIND = acquireIndex();
-                bnode *leftBorder = localBuffers[i].getLeftMost(),
-                        *rightBorder = localBuffers[i].getRightMost();
-                bool empty = leftBorder == rightBorder || (!found
-                                                           && lastLefts[threadIND][i] == leftBorder
-                                                           && lastRights[threadIND][i] == rightBorder);
-                lastLefts[threadIND][i] = leftBorder;
-                lastRights[threadIND][i] = rightBorder;
-                return empty;
+            bool checkEmptyCondition(bool found, ThreadBuffer* buffer) {
+//                int threadIND = acquireIndex();
+//                bnode *leftBorder = buffer->getLeftMost(),
+//                        *rightBorder = buffer->getRightMost();
+//                bool empty = leftBorder == rightBorder || (!found
+//                                                           && lastLefts[threadIND][i] == leftBorder
+//                                                           && lastRights[threadIND][i] == rightBorder);
+//                lastLefts[threadIND][i] = leftBorder;
+//                lastRights[threadIND][i] = rightBorder;
+                return found;
             }
 
             bool tryRemove(guard &toRemove, bool fromL, bool &success) {
@@ -170,20 +174,22 @@ namespace cds {
                 int threadIND = acquireIndex();
                 unsigned long startTime = platform::getTimestamp();
                 int bufferIndex = 0;
-
-                for (int i = 0; i < maxThread; i++) {
-                    if (localBuffers[i].get(candidate, startCandidate, fromL)) {
+                typename Buffer_list::List_node* curNode = bufferList.getHead();
+                ThreadBuffer* curBuffer;
+                do {
+                    curBuffer = curNode->buffer;
+                    if (curBuffer->get(candidate, startCandidate, fromL)) {
                         if (isMore(candidate.get<bnode>(), toRemove.get<bnode>(), fromL)) {
                             isFound = true;
                             toRemove.copy(candidate);
                             startPoint.copy(startCandidate);
-                            bufferIndex = i;
                         }
-                        empty = empty && checkEmptyCondition(true, i);
+                        empty = empty && checkEmptyCondition(true, curBuffer);
                     } else {
-                        empty = empty && checkEmptyCondition(false, i);
+                        empty = empty && checkEmptyCondition(false, curBuffer);
                     }
-                }
+                    curNode = curNode->next.load();
+                } while(curNode != nullptr);
                 empty = empty && wasEmpty[threadIND];
                 wasEmpty[threadIND] = isFound;
 
@@ -194,11 +200,11 @@ namespace cds {
                     bnode *borderNode = toRemove.get<bnode>();
 
                     if (borderNode->wasAdded(fromL)) {
-                        if (localBuffers[bufferIndex].tryRemove(toRemove, startPoint, fromL)) {
+                        if (curBuffer->tryRemove(toRemove, startPoint, fromL)) {
                             return true;
                         }
                     } else {
-                        if (borderNode->item->timestamp <= startTime) if (localBuffers[bufferIndex].tryRemove(toRemove,
+                        if (borderNode->item->timestamp <= startTime) if (curBuffer->tryRemove(toRemove,
                                                                                                               startPoint,
                                                                                                               fromL)) {
                             return true;
@@ -249,9 +255,9 @@ namespace cds {
 
                 timestamped->item = pvalue;
                 if (fromL)
-                    localBuffers[index].insertLeft(timestamped);
+                    local->insertLeft(timestamped);
                 else
-                    localBuffers[index].insertRight(timestamped);
+                    local->insertRight(timestamped);
                 itemCounter++;
                 unsigned long t = platform::getTimestamp();
                 timestamped->timestamp = t;
@@ -276,9 +282,9 @@ namespace cds {
 
                 timestamped->item = pvalue;
                 if (fromL)
-                    localBuffers[index].insertLeft(timestamped);
+                    local->insertLeft(timestamped);
                 else
-                    localBuffers[index].insertRight(timestamped);
+                    local->insertRight(timestamped);
                 itemCounter++;
                 unsigned long t = platform::getTimestamp();
                 timestamped->timestamp = t;
@@ -323,12 +329,9 @@ namespace cds {
 
         public:
 
-            Timestamped_deque(): localBuffer(&cleanup) {
-                bufferList.setStats(&stats);
+            Timestamped_deque(): localBuffer(&cleanup), bufferList(&stats) {
+
                 maxThread = cds::gc::HP::max_thread_count();
-                localBuffers = new ThreadBuffer[maxThread];
-                for (int i = 0; i < maxThread; i++)
-                    localBuffers[i].setStat(&stats);
                 lastLefts = new bnode **[maxThread];
                 // Initializing arrays for detecting empty state of container
                 for (int i = 0; i < maxThread; i++)
@@ -343,7 +346,7 @@ namespace cds {
             }
 
             ~Timestamped_deque() {
-                delete[] localBuffers;
+
                 for (int i = 0; i < maxThread; i++) {
                     delete[] lastLefts[i];
                     delete[] lastRights[i];
@@ -610,6 +613,8 @@ namespace cds {
                 }
 
                 ~ThreadBuffer() {
+
+                    std::cout << "~ThreadBuffer" << std::endl;
                     buffer_node *curNode = rightMost.load();
                     disposer<buffer_node *> executioner;
                     while (curNode != curNode->left.load()) {
@@ -818,7 +823,9 @@ namespace cds {
                         cur = cur->next.load();
                     }
                     if (node == nullptr) {
-                        node = new List_node(new ThreadBuffer(), true);
+                        ThreadBuffer* newBuffer = new ThreadBuffer();
+                        newBuffer->setStat(stats);
+                        node = new List_node(newBuffer, true);
                         stats->amountOfBuffers++;
                         List_node *tail = findTail();
                         while (!tryInsert(tail, node))
@@ -829,9 +836,19 @@ namespace cds {
                 }
 
             public:
-                Buffer_list() {
-                    head.store(new List_node(new ThreadBuffer()));
+                Buffer_list(Statistic* stats) {
+                    this->stats = stats;
+                    ThreadBuffer* newBuffer = new ThreadBuffer();
+                    newBuffer->setStat(stats);
+                    head.store(new List_node(newBuffer));
                 }
+
+
+
+                ~Buffer_list() {
+                    std::cout << "~Buffer_list" << std::endl;
+                }
+
 
                 ThreadBuffer *demandBuffer() {
                     List_node *thing = findOrCreate();
