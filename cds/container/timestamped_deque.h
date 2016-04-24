@@ -71,6 +71,7 @@ namespace cds {
                 std::atomic<int> pushedAmount;
                 std::atomic<int> delayedToFree;
                 std::atomic<int> amountOfBuffers;
+                std::atomic<int> moveBorderLeft;
 
                 Statistic() {
                     failedPopLeft.store(0);
@@ -86,6 +87,7 @@ namespace cds {
                     pushedAmount.store(0);
                     delayedToFree.store(0);
                     amountOfBuffers.store(1);
+                    moveBorderLeft.store(0);
                 }
 
                 ~Statistic() {
@@ -175,11 +177,13 @@ namespace cds {
                 unsigned long startTime = platform::getTimestamp();
                 int bufferIndex = 0;
                 typename Buffer_list::List_node* curNode = bufferList.getHead();
-                ThreadBuffer* curBuffer;
+                ThreadBuffer* curBuffer,
+                                *neededBuffer;
                 do {
                     curBuffer = curNode->buffer;
                     if (curBuffer->get(candidate, startCandidate, fromL)) {
                         if (isMore(candidate.get<bnode>(), toRemove.get<bnode>(), fromL)) {
+                            neededBuffer = curBuffer;
                             isFound = true;
                             toRemove.copy(candidate);
                             startPoint.copy(startCandidate);
@@ -200,11 +204,11 @@ namespace cds {
                     bnode *borderNode = toRemove.get<bnode>();
 
                     if (borderNode->wasAdded(fromL)) {
-                        if (curBuffer->tryRemove(toRemove, startPoint, fromL)) {
+                        if (neededBuffer->tryRemove(toRemove, startPoint, fromL)) {
                             return true;
                         }
                     } else {
-                        if (borderNode->item->timestamp <= startTime) if (curBuffer->tryRemove(toRemove,
+                        if (borderNode->item->timestamp <= startTime) if (neededBuffer->tryRemove(toRemove,
                                                                                                               startPoint,
                                                                                                               fromL)) {
                             return true;
@@ -419,6 +423,7 @@ namespace cds {
                 std::cout << "Amount of left pushes          = " << stats.pushLeft.load() << "\n";
                 std::cout << "Amount of right pushes         = " << stats.pushRight.load() << "\n";
                 std::cout << "Amount of buffers              = " << stats.amountOfBuffers.load() << "\n";
+                std::cout << "Move border left               = " << stats.moveBorderLeft.load() << "\n";
                 std::cout << "----------------------------------------------------------------------------------\n";
 
             }
@@ -696,6 +701,7 @@ namespace cds {
                             *oldLeft = leftMost.load();
                     buffer_node *res = oldRight;
 
+
                     while (true) {
                         if (res->index < oldLeft->index) {
                             guestCounter--;
@@ -703,12 +709,14 @@ namespace cds {
                         }
                         if (!res->taken.load()) {
                             found.protect(std::atomic<buffer_node *>(res));
+
                             break;
                         }
                         if (res->left.load() == res) {
                             guestCounter--;
                             return false;
                         }
+
                         res = res->left.load();
                     }
                     start.protect(std::atomic<buffer_node *>(oldRight));
@@ -769,7 +777,8 @@ namespace cds {
 
                     bool t = false;
                     if (node->taken.compare_exchange_strong(t, true)) {
-                        leftMost.compare_exchange_strong(startPoint, node);
+                        if(leftMost.compare_exchange_strong(startPoint, node))
+                            stats->moveBorderLeft++;
                         tryToCleanGarbage();
                         return true;
                     }
