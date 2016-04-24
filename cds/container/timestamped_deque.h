@@ -322,6 +322,7 @@ namespace cds { namespace container {
 			for(int i=0; i< maxThread; i++) {
 				localBuffers[i].setStat(&stats);
 				localBuffers[i].setLogger(logger);
+				localBuffers[i].setIndex(i);
 			}
 			lastLefts = new bnode** [maxThread];
 			// Initializing arrays for detecting empty state of container
@@ -626,13 +627,16 @@ namespace cds { namespace container {
 		 			std::vector<buffer_node*> garbage;
 					std::atomic<garbage_node*> *garbageArray;
 					int garbageSize;
+					int index;
 		 			long lastIndex;
 					std::atomic<int> guestCounter;
 					std::atomic<bool> inserting;
 					Statistic* stats;
 					Logger* logger;
 		 		public:
-
+					void setIndex(int index) {
+						this->index = index;
+					}
 		 			typedef typename cds::details::Allocator<ThreadBuffer::buffer_node, typename traits::buffernode_allocator> buffernode_allocator;
 		 			ThreadBuffer() : lastIndex(1) {
 						garbageSize = 20;
@@ -647,6 +651,7 @@ namespace cds { namespace container {
 						garbageArray = new std::atomic<garbage_node*>[garbageSize];
 
 		 			}
+
 
 		 			~ThreadBuffer() {
 						buffer_node* curNode = rightMost.load();
@@ -683,7 +688,7 @@ namespace cds { namespace container {
 		 				newNode->index = lastIndex;
 						newNode->item = timestamped;
 						lastIndex += 1;
-						ss << "Insert right. Node:" << newNode ;
+						ss << "|" << index << "|IR|" << newNode ;
 						inserting.store(true);
 						buffer_node* place = rightMost.load();
 						buffer_node* next = place->left.load();
@@ -708,7 +713,7 @@ namespace cds { namespace container {
 						if(tail != place) {
 							tail->isDeletedFromLeft = false;
 							putToGarbage(tail);
-							ss << "  Unlinked!" << tail ;
+							ss << "|true" << tail ;
 							stats->delayedFromInsert++;
 						}
 						logger->write(ss.str());
@@ -724,7 +729,7 @@ namespace cds { namespace container {
 		 				newNode->index = -lastIndex;
 						newNode->item = timestamped;
 						lastIndex += 1;
-						ss << "Insert left. Node:" << newNode ;
+						ss << "|" << index << "|IL|" << newNode ;
 						inserting.store(true);
 						buffer_node* place = leftMost.load();
 						buffer_node* next = place->right.load();
@@ -749,7 +754,7 @@ namespace cds { namespace container {
 						if(tail != place) {
 							tail->isDeletedFromLeft = true;
 							putToGarbage(tail);
-							ss << "  Unlinked!" << tail ;
+							ss << "|true" << tail ;
 							stats->delayedFromInsert++;
 						}
 						logger->write(ss.str());
@@ -771,24 +776,21 @@ namespace cds { namespace container {
 						buffer_node* lastOne = nullptr;
 						std::map<buffer_node*, bool> visited;
 						typename std::map<buffer_node*, bool>::iterator it;
-						ss << "Get right. Start with:" << oldRight ;
+
 
 						visited.insert(std::pair<buffer_node*, bool>(res, true));
 
 		 				while(true) {
 		 					if(res->index < oldLeft->index ) {
 								guestCounter--;
-								logger->write(ss.str());
 								return false;
 							}
 		 					if(!res->taken.load()) {
 								found.protect(std::atomic<buffer_node*>(res));
-								ss << " Finded:" << res;
 		 						break;
 		 					}
 		 					if(res->left.load() == res) {
 								guestCounter--;
-								logger->write(ss.str());
 								return false;
 							}
 							lastOne = res;
@@ -805,7 +807,6 @@ namespace cds { namespace container {
 		 				}
 						start.protect( std::atomic<buffer_node*>(oldRight));
 		 				guestCounter--;
-						logger->write(ss.str());
 						return true;
 		 			}
 
@@ -818,24 +819,20 @@ namespace cds { namespace container {
 						buffer_node* lastOne = nullptr;
 						std::map<buffer_node*, bool> visited;
 						typename std::map<buffer_node*, bool>::iterator it;
-						ss << "Get left. Start with:" << oldLeft ;
 
 						visited.insert(std::pair<buffer_node*, bool>(res, true));
 
 						while(true) {
 							if(res->index > oldRight->index) {
 								guestCounter--;
-								logger->write(ss.str());
 								return false;
 							}
 							if(!res->taken.load()) {
 								found.protect(std::atomic<buffer_node*>(res));
-								ss << " Finded:" << res;
 								break;
 							}
 							if(res->right.load() == res) {
 								guestCounter--;
-								logger->write(ss.str());
 								return false;
 							}
 							lastOne = res;
@@ -852,7 +849,6 @@ namespace cds { namespace container {
 						}
 						start.protect( std::atomic<buffer_node*>(oldLeft));
 						guestCounter--;
-						logger->write(ss.str());
 						return true;
 					}
 
@@ -869,14 +865,14 @@ namespace cds { namespace container {
 		 				buffer_node* node = takenNode.get<buffer_node>();
 						buffer_node* temp = node->right.load();
 		 				buffer_node* startPoint = start.get<buffer_node>();
-						ss << "TryRemoveRight. To remove: " <<  node << "; Old right:" << temp << "; To unlink: " << temp;
+						ss << "|" << index << "|TRR|" <<  node << "|" << startPoint << "|" << temp; // to delete, oldRight, to unlink
 		 				bool t = false;
 		 				if(node->taken.compare_exchange_strong(t, true)) {
 		 					if(rightMost.compare_exchange_strong(startPoint, node)) {
-								ss << "  New right!";
+								ss << "|true";
 								if( temp != node  && canBeUnlinked(node, false) && node->right.compare_exchange_strong(temp, node)) {
 									stats->delayedFromDelete++;
-									ss << "  Unlinked!";
+									ss << "|true";
 									putToGarbage(temp);
 								}
 							}
@@ -893,14 +889,14 @@ namespace cds { namespace container {
 		 				buffer_node* node = takenNode.get<buffer_node>();
 						buffer_node* temp = node->left.load();
 		 				buffer_node* startPoint = start.get<buffer_node>();
-						ss << "TryRemoveLeft. To remove: " <<  node << "; Old left:" << temp << "; To unlink: " << temp;
+						ss << "|" << index << "|TRL|" <<  node << "|" << startPoint << "|" << temp; // to delete, oldLeft, to unlink
 		 				bool t = false;
 						if(node->taken.compare_exchange_strong(t, true)) {
 							if(leftMost.compare_exchange_strong(startPoint, node)) {
-								ss << "  New left!";
+								ss << "|true";
 								if(temp != node  && canBeUnlinked(node, true) && node->left.compare_exchange_strong(temp, node)) {
 									stats->delayedFromDelete++;
-									ss << "  Unlinked!";
+									ss << "|true";
 									temp->isDeletedFromLeft = true;
 									putToGarbage(temp);
 								}
@@ -953,9 +949,6 @@ namespace cds { namespace container {
 						return *temp;
 					}
 
-					bool sortFunc(LogNode* l1, LogNode* l2) {
-						return l1->timestamp > l2->timestamp;
-					}
 
 				public:
 					Logger() {
