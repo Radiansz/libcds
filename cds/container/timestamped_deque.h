@@ -405,7 +405,7 @@ namespace cds { namespace container {
 		}
 
 		int version() {
-			return 10;
+			return 14;
 		}
 
 		void printStats() {
@@ -494,22 +494,33 @@ namespace cds { namespace container {
 					};
 
 					void cleanUnlinked(buffer_node* condemned, bool delayed) {
+
 						int size = garbage.size();
+						bool fromL = condemned->isDeletedFromLeft;
+						buffer_node* toDel = condemned;
+						buffer_node* cur;
+						if(fromL)
+							cur = toDel->left.load();
+						else
+							cur = toDel->right.load();
 						disposer<buffer_node*> executioner;
-						buffer_node* cur = condemned;
-						if(cur->isDeletedFromLeft) {
-							while(cur->left.load() != cur) {
-								buffer_node* toDel = cur;
+						freeNode(executioner, toDel, delayed);
+
+						if(fromL) {
+							while(cur != toDel) {
+
+								toDel = cur;
 								cur = cur->left.load();
 								freeNode(executioner, toDel, delayed);
 							}
 						} else {
-							while(cur->right.load() != cur) {
-								buffer_node* toDel = cur;
+							while(cur != toDel) {
+								toDel = cur;
 								cur = cur->right.load();
 								freeNode(executioner, toDel, delayed);
 							}
 						}
+
 					}
 
 
@@ -733,12 +744,14 @@ namespace cds { namespace container {
 						buffer_node* next = place->left.load();
 						place->toInsert.store(true);
 						next->toInsert.store(true);
+
 						while(place != leftMost.load() && next != place && place->taken.load()) {
 							place->toInsert.store(false);
 							place = next;
 							next = place->left.load();
 							next->toInsert.store(true);
 						}
+
 						if(next != place)
 							next->toInsert.store(false);
 						buffer_node* tail = place->right.load();
