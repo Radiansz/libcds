@@ -479,6 +479,7 @@ namespace cds { namespace container {
 					struct garbage_node {
 						unsigned long timestamp;
 						buffer_node* item;
+						std::vector<buffer_node*> delayed;
 
 						garbage_node(buffer_node* item): item(item) {
 							timestamp = platform::getTimestamp();
@@ -493,34 +494,10 @@ namespace cds { namespace container {
 						}
 					};
 
-					void cleanUnlinked(buffer_node* condemned, bool delayed) {
-
-						int size = garbage.size();
-						bool fromL = condemned->isDeletedFromLeft;
-						buffer_node* toDel = condemned;
-						buffer_node* cur;
-						if(fromL)
-							cur = toDel->left.load();
-						else
-							cur = toDel->right.load();
-						disposer<buffer_node*> executioner;
-						freeNode(executioner, toDel, delayed);
-
-						if(fromL) {
-							while(cur != toDel) {
-
-								toDel = cur;
-								cur = cur->left.load();
-								freeNode(executioner, toDel, delayed);
-							}
-						} else {
-							while(cur != toDel) {
-								toDel = cur;
-								cur = cur->right.load();
-								freeNode(executioner, toDel, delayed);
-							}
+					void cleanUnlinked(garbage_node* condemned, bool delayed) {
+						for(typename std::vector<buffer_node*>::iterator it = condemned->delayed.begin(); it != condemned->delayed.end(); ++it) {
+							freeNode(*it, delayed);
 						}
-
 					}
 
 
@@ -592,14 +569,41 @@ namespace cds { namespace container {
 
 					void putToGarbage(buffer_node* node) {
 						bool temp = false;
-						if(!node->delayed.compare_exchange_strong(temp, true)) {
-							stats->putConflict++;
-							return;
-						}
-						countGarbage(node);
 
 						garbage_node* gNode = new garbage_node(node);
 						garbage_node* tmp;
+						buffer_node* cur = node;
+
+						if(cur->delayed.compare_exchange_strong(temp, true)) {
+							stats->delayedToFree++;
+							gNode->delayed.push_back(cur);
+							if(!cur->taken.load())
+								stats->wrongDelayed++;
+						}
+						if(cur->isDeletedFromLeft) {
+							while(cur->left.load() != cur) {
+								temp = false;
+								cur = cur->left.load();
+								if(cur->delayed.compare_exchange_strong(temp, true)) {
+									stats->delayedToFree++;
+									gNode->delayed.push_back(cur);
+									if(!cur->taken.load())
+										stats->wrongDelayed++;
+								}
+							}
+						} else {
+							while(cur->right.load() != cur) {
+								temp = false;
+								cur = cur->right.load();
+								if(cur->delayed.compare_exchange_strong(temp, true)) {
+									stats->delayedToFree++;
+									gNode->delayed.push_back(cur);
+									if(!cur->taken.load())
+										stats->wrongDelayed++;
+								}
+							}
+						}
+
 
 						gNode->item = node;
 						gNode->timestamp = platform::getTimestamp();
@@ -628,7 +632,7 @@ namespace cds { namespace container {
 									place = i;
 									if(garbageArray[i].compare_exchange_strong(candidate, nullptr)) {
 
-										cleanUnlinked(candidate->item, true);
+										cleanUnlinked(candidate, true);
 										cleaned = true;
 										if(single)
 											return cleaned;
