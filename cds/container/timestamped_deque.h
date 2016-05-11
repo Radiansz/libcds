@@ -574,7 +574,11 @@ namespace cds { namespace container {
 						garbage_node* tmp;
 						buffer_node* cur = node;
 
+
 						if(cur->delayed.compare_exchange_strong(temp, true)) {
+							std::stringstream ss1;
+							ss1 << '|' << index << "|Delayed|" << cur;
+							logger->write(ss1.str());
 							stats->delayedToFree++;
 							gNode->delayed.push_back(cur);
 							if(!cur->taken.load())
@@ -585,6 +589,9 @@ namespace cds { namespace container {
 								temp = false;
 								cur = cur->left.load();
 								if(cur->delayed.compare_exchange_strong(temp, true)) {
+									std::stringstream ss1;
+									ss1 << '|' << index << "|Delayed|" << cur;
+									logger->write(ss1.str());
 									stats->delayedToFree++;
 									gNode->delayed.push_back(cur);
 									if(!cur->taken.load())
@@ -596,6 +603,9 @@ namespace cds { namespace container {
 								temp = false;
 								cur = cur->right.load();
 								if(cur->delayed.compare_exchange_strong(temp, true)) {
+									std::stringstream ss1;
+									ss1 << '|' << index << "|Delayed|" << cur;
+									logger->write(ss1.str());
 									stats->delayedToFree++;
 									gNode->delayed.push_back(cur);
 									if(!cur->taken.load())
