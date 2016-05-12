@@ -584,13 +584,13 @@ namespace cds { namespace container {
 
 					}
 
-					void putToGarbage(buffer_node* node) {
+					garbage_node* makeGarbageNode(buffer_node* node) {
 						bool temp = false;
 
 						garbage_node* gNode = new garbage_node(node);
 						garbage_node* tmp;
 						buffer_node* cur = node,
-									*next = node;
+								*next = node;
 						bool fromLeft = cur->isDeletedFromLeft;
 						do {
 							temp = false;
@@ -609,9 +609,16 @@ namespace cds { namespace container {
 							next = cur->go(fromLeft);
 
 						} while(next != cur);
-
-						gNode->item = node;
 						gNode->timestamp = platform::getTimestamp();
+						return gNode;
+					}
+
+					void putToGarbage(garbage_node* delayedChunk) {
+
+
+						garbage_node* gNode = delayedChunk;
+						garbage_node* tmp;
+
 						int place = findEmptyCell();
 						do {
 							tmp = nullptr;
@@ -770,6 +777,7 @@ namespace cds { namespace container {
 						newNode->item = timestamped;
 						lastIndex += 1;
 						ss << '|' << index << "|Inserted|" << newNode;
+						guestCounter++;
 						inserting.store(true);
 						buffer_node* place = toLeft ? leftMost.load() : rightMost.load();
 						buffer_node* next = place->go(!toLeft);
@@ -792,8 +800,12 @@ namespace cds { namespace container {
 
 						if(tail != place) {
 							tail->isDeletedFromLeft = toLeft;
-							putToGarbage(tail);
+							garbage_node* garbage = makeGarbageNode(tail);
+							guestCounter--;
+							putToGarbage(garbage);
 							stats->delayedFromInsert++;
+						} else {
+							guestCounter--;
 						}
 
 						logger->write(ss.str());
@@ -877,11 +889,12 @@ namespace cds { namespace container {
 						if(node->taken.compare_exchange_strong(t, true)) {
 							if( tryToSetBorder(node, startPoint, fromL)) {
 
-								if( temp != node && !inserting.load() && node->trySetNeighbour(node, temp, fromL)) {
+								if( temp != node && !inserting.load() && isBorder(node, fromL) && node->trySetNeighbour(node, temp, fromL)) {
 									temp->isDeletedFromLeft = fromL;
 									stats->delayedFromDelete++;
+									garbage_node* garbage = makeGarbageNode(temp);
 									guestCounter--;
-									putToGarbage(temp);
+									putToGarbage(garbage);
 									return true;
 								}
 							}
