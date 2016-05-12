@@ -110,7 +110,7 @@ namespace cds {
         private:
 
             static void cleanup(ThreadBuffer* b) {
-
+				b->deoccupy();
             }
 
             Statistic stats;
@@ -791,22 +791,9 @@ namespace cds {
             public:
                 struct List_node;
             private:
-                class Detector {
-                    List_node *property;
-
-                public:
-                    Detector(List_node *buffer) : property(buffer) {
-
-                    }
-
-                    ~Detector() {
-                        property->deoccupy();
-                    }
-                };
 
 
                 std::atomic<List_node *> head;
-                boost::thread_specific_ptr<Detector> detector;
                 Statistic *stats;
 
                 List_node *findTail() {
@@ -825,7 +812,7 @@ namespace cds {
                     List_node *cur = head.load();
                     List_node *node = nullptr;
                     while (cur->next.load() != nullptr) {
-                        if (cur->tryOccupy()) {
+                        if (cur->buffer->tryOccupy()) {
                             node = cur;
                             break;
                         }
@@ -840,7 +827,6 @@ namespace cds {
                         while (!tryInsert(tail, node))
                             tail = findTail();
                     }
-                    detector.reset(new Detector(node));
                     return node;
                 }
 
