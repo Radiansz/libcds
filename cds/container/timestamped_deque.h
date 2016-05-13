@@ -746,6 +746,9 @@ namespace cds { namespace container {
 
 					void setLogger(Logger* log) {
 						logger = log;
+						std::stringstream ss;
+						ss << '|' << index << "|Inserted|" << leftMost.load();
+						logger->write(ss.str());
 					}
 
 					bool isBorder(buffer_node* node, bool leftest) {
@@ -770,12 +773,13 @@ namespace cds { namespace container {
 					}
 
 					void insert(node* timestamped, bool toLeft) {
-						std::stringstream ss;
+
 
 						buffer_node* newNode = buffernode_allocator().New();
 						newNode->index = (toLeft ? -lastIndex : lastIndex);
 						newNode->item = timestamped;
 						lastIndex += 1;
+						std::stringstream ss;
 						ss << '|' << index << "|Inserted|" << newNode;
 						guestCounter++;
 						inserting.store(true);
