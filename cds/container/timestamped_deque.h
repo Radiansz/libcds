@@ -405,7 +405,8 @@ namespace cds { namespace container {
 		}
 
 		int version() {
-			return 10;
+
+			return 14;
 		}
 
 		void printStats() {
@@ -456,6 +457,23 @@ namespace cds { namespace container {
 						std::atomic<bool> toInsert;
 						std::atomic<bool> delayed;
 		 				bool isDeletedFromLeft;
+						buffer_node* go(bool toLeft) {
+							return toLeft ? left.load() : right.load();
+						}
+
+						void setNeighbour(buffer_node* node, bool toLeft) {
+							if(toLeft)
+								left.store(node);
+							else
+								right.store(node);
+						}
+
+						bool trySetNeighbour(buffer_node* newOne, buffer_node* oldOne, bool toLeft) {
+							if(toLeft)
+								return left.compare_exchange_strong(oldOne, newOne);
+							else
+								return right.compare_exchange_strong(oldOne, newOne);
+						}
 
 		 				bool wasAdded(bool fromL) {
 		 					if(fromL)
@@ -479,6 +497,7 @@ namespace cds { namespace container {
 					struct garbage_node {
 						unsigned long timestamp;
 						buffer_node* item;
+						std::vector<buffer_node*> delayed;
 
 						garbage_node(buffer_node* item): item(item) {
 							timestamp = platform::getTimestamp();
@@ -493,43 +512,32 @@ namespace cds { namespace container {
 						}
 					};
 
-					void cleanUnlinked(buffer_node* condemned, bool delayed) {
-						int size = garbage.size();
-						disposer<buffer_node*> executioner;
-						buffer_node* cur = condemned;
-						if(cur->isDeletedFromLeft) {
-							while(cur->left.load() != cur) {
-								buffer_node* toDel = cur;
-								cur = cur->left.load();
-								freeNode(executioner, toDel, delayed);
-							}
-						} else {
-							while(cur->right.load() != cur) {
-								buffer_node* toDel = cur;
-								cur = cur->right.load();
-								freeNode(executioner, toDel, delayed);
-							}
+					void cleanUnlinked(garbage_node* condemned, bool delayed) {
+						for(typename std::vector<buffer_node*>::iterator it = condemned->delayed.begin(); it != condemned->delayed.end(); ++it) {
+							freeNode(*it, delayed, condemned);
 						}
 					}
 
 
 
-					void freeNode(disposer<buffer_node*> &executioner, buffer_node* toDel, bool delayed) {
+
+					void freeNode(disposer<buffer_node*> &executioner, buffer_node* toDel, bool delayed, garbage_node* origin = nullptr) {
 
 						if(delayed)
 							cds::gc::HP::retire<disposer<buffer_node> >(toDel);
 						else
 							executioner(toDel);
 						std::stringstream ss;
-						ss << '|' << index << "|Freed|" << toDel;
+
+						ss << '|' << index << "|Freed|" << toDel << "|" << origin;
 						logger->write(ss.str());
 
 						stats->freedAmount++;
 					}
 
-					void freeNode(buffer_node* toDel, bool delayed = true) {
+					void freeNode(buffer_node* toDel, bool delayed = true, garbage_node* origin = nullptr) {
 						disposer<buffer_node*> executioner;
-						freeNode(executioner, toDel, delayed);
+						freeNode(executioner, toDel, delayed, origin);
 					}
 
 					int findEmptyCell() {
@@ -579,29 +587,52 @@ namespace cds { namespace container {
 
 					}
 
-					void putToGarbage(buffer_node* node) {
+
+					garbage_node* makeGarbageNode(buffer_node* node) {
 						bool temp = false;
-						if(!node->delayed.compare_exchange_strong(temp, true)) {
-							stats->putConflict++;
-							return;
-						}
-						countGarbage(node);
 
 						garbage_node* gNode = new garbage_node(node);
 						garbage_node* tmp;
+						buffer_node* cur = node,
+								*next = node;
+						bool fromLeft = cur->isDeletedFromLeft;
+						do {
+							temp = false;
+							cur = next;
+							if(cur->delayed.compare_exchange_strong(temp, true)) {
+								std::stringstream ss1;
+								ss1 << '|' << index << "|Delayed|" << cur;
+								logger->write(ss1.str());
+								stats->delayedToFree++;
+								// delay
+								gNode->delayed.push_back(cur);
+								if(!cur->taken.load())
+									stats->wrongDelayed++;
 
-						gNode->item = node;
+							}
+							next = cur->go(fromLeft);
+
+						} while(next != cur);
 						gNode->timestamp = platform::getTimestamp();
+						return gNode;
+					}
+
+					void putToGarbage(garbage_node* delayedChunk) {
+
+
+						garbage_node* gNode = delayedChunk;
+						garbage_node* tmp;
+
 						int place = findEmptyCell();
 						do {
 							tmp = nullptr;
-
-							if (place == -1) {
+							place = -1;
+							while(place == -1) {
 								// Phew
 								while (!tryToCleanGarbage(true)) { }
 								place = findEmptyCell();
 							}
-						} while(garbageArray[place].compare_exchange_strong(tmp, gNode));
+						} while(!garbageArray[place].compare_exchange_strong(tmp, gNode));
 
 					}
 
@@ -615,9 +646,11 @@ namespace cds { namespace container {
 								candidate = garbageArray[i].load();
 								if(candidate != nullptr && candidate->timestamp < timestamp) {
 									place = i;
+
+
 									if(garbageArray[i].compare_exchange_strong(candidate, nullptr)) {
 
-										cleanUnlinked(candidate->item, true);
+										cleanUnlinked(candidate, true);
 										cleaned = true;
 										if(single)
 											return cleaned;
@@ -718,245 +751,184 @@ namespace cds { namespace container {
 
 					void setLogger(Logger* log) {
 						logger = log;
+						std::stringstream ss;
+						ss << '|' << index << "|Inserted|" << leftMost.load();
+						logger->write(ss.str());
+					}
+
+					bool isBorder(buffer_node* node, bool leftest) {
+						if(leftest)
+							return node == leftMost.load();
+						else
+							return node == rightMost.load();
+					}
+
+					void setBorder(buffer_node* node, bool leftest) {
+						if(leftest)
+							leftMost.store(node);
+						else
+							rightMost.store(node);
+					}
+
+					bool tryToSetBorder(buffer_node* newOne, buffer_node* oldOne, bool leftest) {
+						if(leftest)
+							leftMost.compare_exchange_strong(oldOne, newOne);
+						else
+							rightMost.compare_exchange_strong(oldOne, newOne);
+					}
+
+					void insert(node* timestamped, bool toLeft) {
+
+
+						buffer_node* newNode = buffernode_allocator().New();
+						newNode->index = (toLeft ? -lastIndex : lastIndex);
+						newNode->item = timestamped;
+						lastIndex += 1;
+
+						std::stringstream ss;
+						ss << '|' << index << "|Inserted|" << newNode;
+						guestCounter++;
+						inserting.store(true);
+						buffer_node* place = toLeft ? leftMost.load() : rightMost.load();
+						buffer_node* next = place->go(!toLeft);
+
+						while(isBorder(place, !toLeft) && next != place && place->taken.load()) {
+							place = next;
+							next = place->go(!toLeft);
+						}
+
+						buffer_node* tail = place->go(toLeft);
+
+						if(place->go(!toLeft) == place)
+							setBorder(place, !toLeft);
+
+						newNode->setNeighbour(place, !toLeft);
+						place->setNeighbour(newNode, toLeft);
+						setBorder(newNode, toLeft);
+
+						inserting.store(false);
+
+						if(tail != place) {
+
+							tail->isDeletedFromLeft = toLeft;
+							garbage_node* garbage = makeGarbageNode(tail);
+							guestCounter--;
+							putToGarbage(garbage);
+							stats->delayedFromInsert++;
+						} else {
+							guestCounter--;
+						}
+
+						logger->write(ss.str());
 					}
 
 		 			void insertRight(node* timestamped) {
-						std::stringstream ss;
-
-		 				buffer_node* newNode = buffernode_allocator().New();
-		 				newNode->index = lastIndex;
-						newNode->item = timestamped;
-						lastIndex += 1;
-						ss << '|' << index << "|Inserted|" << newNode;
-						inserting.store(true);
-						buffer_node* place = rightMost.load();
-						buffer_node* next = place->left.load();
-						place->toInsert.store(true);
-						next->toInsert.store(true);
-						while(place != leftMost.load() && next != place && place->taken.load()) {
-							place->toInsert.store(false);
-							place = next;
-							next = place->left.load();
-							next->toInsert.store(true);
-						}
-						if(next != place)
-							next->toInsert.store(false);
-						buffer_node* tail = place->right.load();
-						if(place->left.load() == place)
-							leftMost.store(place);
-						newNode->left.store(place);
-						place->right.store(newNode);
-						rightMost.store(newNode);
-						place->toInsert.store(false);
-						inserting.store(false);
-						if(tail != place) {
-							tail->isDeletedFromLeft = false;
-							putToGarbage(tail);
-							 
-							stats->delayedFromInsert++;
-						}
-						logger->write(ss.str());
-
-
-
+						insert(timestamped, false);
 		 			}
 
 		 			void insertLeft(node* timestamped) {
-						std::stringstream ss;
-
-		 				buffer_node* newNode = buffernode_allocator().New();
-		 				newNode->index = -lastIndex;
-						newNode->item = timestamped;
-						lastIndex += 1;
-						ss << '|' << index <<  "|Inserted|" << newNode;
-						inserting.store(true);
-						buffer_node* place = leftMost.load();
-						buffer_node* next = place->right.load();
-						place->toInsert.store(true);
-						next->toInsert.store(true);
-						while(place != rightMost.load() && next != place && place->taken.load()) {
-							place->toInsert.store(false);
-							place = next;
-							next = place->right.load();
-							next->toInsert.store(true);
-						}
-						if(next != place)
-							next->toInsert.store(false);
-						buffer_node* tail = place->left.load();
-						if(place->right.load() == place)
-							rightMost.store(place);
-						newNode->right.store(place);
-						place->left.store(newNode);
-						leftMost.store(newNode);
-						place->toInsert.store(false);
-						inserting.store(false);
-						if(tail != place) {
-							tail->isDeletedFromLeft = true;
-							putToGarbage(tail);
-							 
-							stats->delayedFromInsert++;
-						}
-						logger->write(ss.str());
-
+						insert(timestamped, true);
 		 			}
 
-		 			bool get( guard& finded ,guard& start, bool fromL) {
-		 				return (fromL ? getLeft(finded, start) : getRight(finded, start));
-		 			}
+		 			bool get( guard& found ,guard& start, bool fromL) {
 
-
-
-		 			bool getRight(guard& found, guard& start) {
 						std::stringstream ss;
-		 				guestCounter++;
-		 				buffer_node *oldRight = rightMost.load(),
-		 							*oldLeft = leftMost.load();
-		 				buffer_node* res = oldRight;
+
+						guestCounter++;
+						start.protect( (fromL ? leftMost : rightMost));
+						buffer_node *oldStart = start.get<buffer_node>(),
+								*oldEnd = fromL ? rightMost.load() : leftMost.load();
+
+						buffer_node* res = oldStart;
 						buffer_node* lastOne = nullptr;
 						std::map<buffer_node*, bool> visited;
 						typename std::map<buffer_node*, bool>::iterator it;
 
-
-						visited.insert(std::pair<buffer_node*, bool>(res, true));
-
-		 				while(true) {
-		 					if(res->index < oldLeft->index ) {
-								guestCounter--;
-								return false;
-							}
-		 					if(!res->taken.load()) {
-								found.protect(std::atomic<buffer_node*>(res));
-		 						break;
-		 					}
-		 					if(res->left.load() == res) {
-								guestCounter--;
-								return false;
-							}
-							lastOne = res;
-		 					res = res->left.load();
-							it = visited.find(res);
-
-							if(it == visited.end()) {
-								visited.insert(std::pair<buffer_node*, bool>(res, true));
-							} else {
-								 
-								logger->write(ss.str());
-								throw EndlessLoopException(visited.size());
-							}
-		 				}
-						start.protect( std::atomic<buffer_node*>(oldRight));
-		 				guestCounter--;
-						return true;
-		 			}
-
-		 			bool getLeft(guard& found, guard& start) {
-						std::stringstream ss;
-		 				guestCounter++;
-		 				buffer_node  *oldRight = rightMost.load(),
-									 *oldLeft = leftMost.load();
-						buffer_node* res = oldLeft;
-						buffer_node* lastOne = nullptr;
-						std::map<buffer_node*, bool> visited;
-						typename std::map<buffer_node*, bool>::iterator it;
 
 						visited.insert(std::pair<buffer_node*, bool>(res, true));
 
 						while(true) {
-							if(res->index > oldRight->index) {
+							if(!fromL && res->index < oldEnd->index || fromL && res->index > oldEnd->index) {
 								guestCounter--;
+
 								return false;
 							}
 							if(!res->taken.load()) {
 								found.protect(std::atomic<buffer_node*>(res));
+
 								break;
 							}
-							if(res->right.load() == res) {
+							if(res->go(!fromL) == res) {
 								guestCounter--;
+
 								return false;
 							}
 							lastOne = res;
-							res = res->right.load();
+							res = res->go(!fromL);
 							it = visited.find(res);
 
 							if(it == visited.end()) {
 								visited.insert(std::pair<buffer_node*, bool>(res, true));
 							} else {
-								 
+
 								logger->write(ss.str());
 								throw EndlessLoopException(visited.size());
 							}
 						}
-						start.protect( std::atomic<buffer_node*>(oldLeft));
 						guestCounter--;
 						return true;
+		 			}
+
+
+
+
+		 			bool getRight(guard& found, guard& start) {
+						return get(found, start, false);
+		 			}
+
+		 			bool getLeft(guard& found, guard& start) {
+						return get(found, start, true);
 					}
 
 
 		 			bool tryRemove(guard& takenNode, guard& start, bool fromL) {
-		 				if(fromL)
-		 					return tryRemoveLeft(takenNode, start);
-		 				else
-		 					return tryRemoveRight(takenNode, start);
-		 			}
-
-		 			bool tryRemoveRight(guard& takenNode, guard& start) {
 						guestCounter++;
 						std::stringstream ss;
-		 				buffer_node* node = takenNode.get<buffer_node>();
-						buffer_node* temp = node->right.load();
-		 				buffer_node* startPoint = start.get<buffer_node>();
-						  // to delete, oldRight, to unlink
-		 				bool t = false;
-		 				if(node->taken.compare_exchange_strong(t, true)) {
-		 					if(rightMost.compare_exchange_strong(startPoint, node)) {
-								 
-								if( temp != node && !inserting.load() && node->right.compare_exchange_strong(temp, node)) {
-									temp->isDeletedFromLeft = false;
-									stats->delayedFromDelete++;
-									guestCounter--;
-									putToGarbage(temp);
-									return true;
-								}
-							}
-							guestCounter--;
-							tryToCleanGarbage();
-							//logger->write(ss.str());
-		 					return true;
-		 				}
-						//logger->write(ss.str());
-						guestCounter--;
-		 				return false;
-		 			}
-
-		 			bool tryRemoveLeft(guard& takenNode, guard& start) {
-						std::stringstream ss;
-						guestCounter++;
-		 				buffer_node* node = takenNode.get<buffer_node>();
-						buffer_node* temp = node->left.load();
-		 				buffer_node* startPoint = start.get<buffer_node>();
-						  // to delete, oldLeft, to unlink
-		 				bool t = false;
+						buffer_node* node = takenNode.get<buffer_node>();
+						buffer_node* temp = node->go(fromL);
+						buffer_node* startPoint = start.get<buffer_node>();
+						// to delete, oldRight, to unlink
+						bool t = false;
 						if(node->taken.compare_exchange_strong(t, true)) {
-							if(leftMost.compare_exchange_strong(startPoint, node)) {
-								 
-								if(temp != node && !inserting.load() && node->left.compare_exchange_strong(temp, node)) {
-									stats->delayedFromDelete++;
+							if( tryToSetBorder(node, startPoint, fromL)) {
 
-									temp->isDeletedFromLeft = true;
+								if( temp != node && !inserting.load() && isBorder(node, fromL) && node->trySetNeighbour(node, temp, fromL)) {
+									temp->isDeletedFromLeft = fromL;
+									stats->delayedFromDelete++;
+									garbage_node* garbage = makeGarbageNode(temp);
 									guestCounter--;
-									putToGarbage(temp);
+									putToGarbage(garbage);
+
 									return true;
 								}
 							}
 							guestCounter--;
 							tryToCleanGarbage();
-//							logger->write(ss.str());
 
+							//logger->write(ss.str());
 							return true;
 						}
 						//logger->write(ss.str());
 						guestCounter--;
 						return false;
+		 			}
+
+		 			bool tryRemoveRight(guard& takenNode, guard& start) {
+						return tryRemove(takenNode, start, false);
+		 			}
+
+		 			bool tryRemoveLeft(guard& takenNode, guard& start) {
+						return tryRemove(takenNode, start, true);
 		 			}
 
 
