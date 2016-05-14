@@ -507,6 +507,8 @@ namespace cds { namespace container {
 		 			template <typename M>
 					struct disposer {
 						void operator ()( buffer_node * p ) {
+							if(p->item != nullptr)
+								allocator().Delete(p->item->item);
 							node_allocator().Delete(p->item);
 							buffernode_allocator().Delete(p);
 						}

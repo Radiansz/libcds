@@ -85,7 +85,7 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/cds DESTINATION include COMPONENT ${HEADER
 
 if(WITH_TESTS)
   enable_testing()
-  add_subdirectory(${CMAKE_SOURCE_DIR}/tests)
+  add_subdirectory(${CMAKE_SOURCE_DIR}/mytests)
   message(STATUS "Build tests: activated")
 endif(WITH_TESTS)
 
