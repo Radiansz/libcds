@@ -1,0 +1,15 @@
+set(TEST_COMMON test-common)
+set(PACKAGE_NAME mytests)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+
+set(SOURCES main-test.cpp)
+
+add_executable(${PACKAGE_NAME} ${SOURCES} )
+
+add_test(NAME ${PACKAGE_NAME} COMMAND ${PACKAGE_NAME} WORKING_DIRECTORY ${EXECUTABLE_OUTPUT_PATH})
+
+
+
+
+file(GLOB CONF_FILES ${PROJECT_SOURCE_DIR}/tests/data/*.conf)
+file(COPY ${CONF_FILES} DESTINATION ${EXECUTABLE_OUTPUT_PATH})
