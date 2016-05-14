@@ -3,9 +3,10 @@
 #include <cds/init.h>
 #include <cds/gc/hp.h>
 #include <cds/container/timestamped_deque.h>
-#define DATA_SIZE 10
+#define DATA_SIZE 1000000
+#define THREADS_AMOUNT 8
 
-cds::gc::HP hpGC(4, 8);
+cds::gc::HP hpGC(THREADS_AMOUNT + 1, 8);
 
 struct traits_TSDeque_ic : public cds::container::timestamped_deque::traits
 {
@@ -23,105 +24,48 @@ struct TestStruct {
 
 };
 
+cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque;
+boost::barrier *startBarrier;
 
-TEST(TSDeque_unit, Creation) {
-    cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
-
-}
-
-TEST(TSDeque_unit, Empty) {
-    cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
-    EXPECT_TRUE(deque->empty());
-}
-
-TEST(TSDeque_unit, Push_front) {
-    cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
-    for(int i=0; i < DATA_SIZE; i++) {
-        TestStruct test(i);
-        deque->push_front(test);
+void backReader() {
+    startBarrier->wait();
+    cds::threading::Manager::attachThread();
+    for(int i = 0; i < DATA_SIZE; i++) {
+        TestStruct t;
+        try {
+            deque->pop_back(t);
+        } catch (cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >::EndlessLoopException& e) {
+            break;
+        }
     }
-    EXPECT_EQ(DATA_SIZE, deque->size());
+    cds::threading::Manager::detachThread();
 }
 
-TEST(TSDeque_unit, Push_back) {
-    cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
+void backWriter() {
+    startBarrier->wait();
+    cds::threading::Manager::attachThread();
     for(int i=0; i < DATA_SIZE; i++) {
         TestStruct test(i);
         deque->push_back(test);
     }
-    EXPECT_EQ(DATA_SIZE, deque->size());
+    cds::threading::Manager::detachThread();
 }
 
-TEST(TSDeque_unit, Pop_back_with_Push_front) {
-    cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
-    for(int i=0; i < DATA_SIZE; i++) {
-        TestStruct test(i);
-        deque->push_front(test);
-    }
 
-    for(int i=0; i < DATA_SIZE; i++) {
-        TestStruct test;
-        deque->pop_back(test);
-        EXPECT_EQ(i, test.data);
-    }
-    EXPECT_EQ(0, deque->size());
-}
+TEST(TSDeque_stress, As_a_stack) {
+    deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
+    int amount = THREADS_AMOUNT/2;
+    startBarrier = new boost::barrier(amount*2+1);
+    boost::thread **threads = new boost::thread*[THREADS_AMOUNT];
+    for(int i = 0; i < amount; i++)
+        threads[i] = new boost::thread(backReader);
+    for(int i = 0; i < amount; i++)
+        threads[i+amount] = new boost::thread(backWriter);
+    startBarrier->wait();
+    for(int i = 0; i < amount*2; i++)
+        threads[i]->join();
+    deque->printStats();
 
-TEST(TSDeque_unit, Pop_back_with_Push_back) {
-    cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
-    for(int i=0; i < DATA_SIZE; i++) {
-        TestStruct test(i);
-        deque->push_back(test);
-    }
-
-    for(int i=0; i < DATA_SIZE; i++) {
-        TestStruct test;
-        deque->pop_back(test);
-        EXPECT_EQ((DATA_SIZE - i - 1), test.data);
-    }
-    EXPECT_EQ(0, deque->size());
-}
-
-TEST(TSDeque_unit, Pop_front_with_Push_front) {
-    cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
-    for(int i=0; i < DATA_SIZE; i++) {
-        TestStruct test(i);
-        deque->push_front(test);
-    }
-
-    for(int i=0; i < DATA_SIZE; i++) {
-        TestStruct test;
-        deque->pop_front(test);
-        EXPECT_EQ((DATA_SIZE - i - 1), test.data);
-    }
-    EXPECT_EQ(0, deque->size());
-}
-
-TEST(TSDeque_unit, Pop_front_with_Push_back) {
-    cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
-    for(int i=0; i < DATA_SIZE; i++) {
-        TestStruct test(i);
-        deque->push_back(test);
-    }
-
-    for(int i=0; i < DATA_SIZE; i++) {
-        TestStruct test;
-        deque->pop_front(test);
-        EXPECT_EQ(i, test.data);
-    }
-    EXPECT_EQ(0, deque->size());
-}
-
-TEST(TSDeque_unit, Pop_front_from_empty) {
-    cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
-    TestStruct test;
-    EXPECT_FALSE(deque->pop_front(test));
-}
-
-TEST(TSDeque_unit, Pop_back_from_empty) {
-    cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
-    TestStruct test;
-    EXPECT_FALSE(deque->pop_back(test));
 }
 
 
