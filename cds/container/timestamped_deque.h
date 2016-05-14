@@ -168,7 +168,7 @@ namespace cds { namespace container {
 			 startCandidate.clear();
 			 startPoint.clear();
 			 toRemove.clear();
-			 bnode *b = candidate.get<bnode>();
+
 			 bool empty = true, isFound = false;
 			 success = true;
 			 int threadIND = acquireIndex();
@@ -590,7 +590,7 @@ namespace cds { namespace container {
 						bool temp = false;
 
 						garbage_node* gNode = new garbage_node(node);
-						garbage_node* tmp;
+
 						buffer_node* cur = node,
 								*next = node;
 						bool fromLeft = cur->isDeletedFromLeft;
@@ -769,9 +769,9 @@ namespace cds { namespace container {
 
 					bool tryToSetBorder(buffer_node* newOne, buffer_node* oldOne, bool leftest) {
 						if(leftest)
-							leftMost.compare_exchange_strong(oldOne, newOne);
+							return leftMost.compare_exchange_strong(oldOne, newOne);
 						else
-							rightMost.compare_exchange_strong(oldOne, newOne);
+							return rightMost.compare_exchange_strong(oldOne, newOne);
 					}
 
 					void insert(node* timestamped, bool toLeft) {
@@ -972,9 +972,9 @@ namespace cds { namespace container {
 					}
 
 					void write(std::string s) {
-						int index = acquireIndex();
-						LogNode* node = new LogNode(s, platform::getTimestamp(), index);
-						threads.at(index)->push_back(node);
+//						int index = acquireIndex();
+//						LogNode* node = new LogNode(s, platform::getTimestamp(), index);
+//						threads.at(index)->push_back(node);
 					}
 
 					void printAll() {
