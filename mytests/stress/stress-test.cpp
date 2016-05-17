@@ -6,7 +6,7 @@
 #define DATA_SIZE 1000000
 #define THREADS_AMOUNT 8
 
-cds::gc::HP hpGC(THREADS_AMOUNT + 1, 8);
+cds::gc::HP hpGC(4, THREADS_AMOUNT + 1);
 
 struct traits_TSDeque_ic : public cds::container::timestamped_deque::traits
 {
