@@ -32,6 +32,7 @@ namespace cds { namespace container {
  			using node_allocator = CDS_DEFAULT_ALLOCATOR;
 
  			using buffernode_allocator = CDS_DEFAULT_ALLOCATOR;
+			using gnode_allocator = CDS_DEFAULT_ALLOCATOR;
  			/// Item allocator
  			using allocator = CDS_DEFAULT_ALLOCATOR;
  			/// Item counting feature; by default, disabled. Use \p cds::atomicity::item_counter to enable item counting
@@ -510,8 +511,16 @@ namespace cds { namespace container {
 						buffer_node* item;
 						std::vector<buffer_node*> delayed;
 
+						garbage_node() {
+							timestamp = platform::getTimestamp();
+						}
+
 						garbage_node(buffer_node* item): item(item) {
 							timestamp = platform::getTimestamp();
+						}
+
+						~garbage_node() {
+							std::cout << "Gnode_delete" << std::endl;
 						}
 					};
 
@@ -604,7 +613,8 @@ namespace cds { namespace container {
 					garbage_node* makeGarbageNode(buffer_node* node) {
 						bool temp = false;
 
-						garbage_node* gNode = new garbage_node(node);
+						garbage_node* gNode = gnode_allocator().New();
+						gNode->item = node;
 
 						buffer_node* cur = node,
 								*next = node;
@@ -632,7 +642,6 @@ namespace cds { namespace container {
 
 					void putToGarbage(garbage_node* delayedChunk) {
 
-
 						garbage_node* gNode = delayedChunk;
 						garbage_node* tmp;
 
@@ -657,16 +666,18 @@ namespace cds { namespace container {
 							garbage_node* candidate;
 							for(int i=0; i < garbageSize; i++ ) {
 								candidate = garbageArray[i].load();
-								if(candidate != nullptr && candidate->timestamp < timestamp) {
-									place = i;
+								if(candidate != nullptr) {
+									if (candidate->timestamp < timestamp) {
+										place = i;
 
 
-									if(garbageArray[i].compare_exchange_strong(candidate, nullptr)) {
+										if (garbageArray[i].compare_exchange_strong(candidate, nullptr)) {
 
-										cleanUnlinked(candidate, true);
-										cleaned = true;
-										if(single)
-											return cleaned;
+											cleanUnlinked(candidate, true);
+											cleaned = true;
+											if (single)
+												return cleaned;
+										}
 									}
 								}
 							}
@@ -723,7 +734,9 @@ namespace cds { namespace container {
 						this->index = index;
 					}
 		 			typedef typename cds::details::Allocator<ThreadBuffer::buffer_node, typename traits::buffernode_allocator> buffernode_allocator;
-		 			ThreadBuffer() : lastIndex(1) {
+					typedef typename cds::details::Allocator<ThreadBuffer::garbage_node, typename traits::gnode_allocator> gnode_allocator;
+
+					ThreadBuffer() : lastIndex(1) {
 						garbageSize = 20;
 		 				buffer_node* newNode = buffernode_allocator().New();
 		 				newNode->index = 0;
@@ -734,6 +747,8 @@ namespace cds { namespace container {
 						inserting.store(false);
 		 				guestCounter.store(0);
 						garbageArray = new std::atomic<garbage_node*>[garbageSize];
+						for(int i=0; i < garbageSize; i++)
+							garbageArray[i].store(nullptr);
 
 		 			}
 
