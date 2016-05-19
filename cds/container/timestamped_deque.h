@@ -175,9 +175,8 @@ namespace cds { namespace container {
 			 int threadIND = acquireIndex();
 			 unsigned long startTime = platform::getTimestamp();
 			 int bufferIndex = 0;
-			 int start = rand() % maxThread;
-			 int i = start;
-			 do {
+
+			 for(int i = 0; i < maxThread; i++) {
 				 if(localBuffers[i].get(candidate, startCandidate, fromL)) {
 					 if(isMore(candidate.get<bnode>(), toRemove.get<bnode>(), fromL)) {
 						 isFound = true;
@@ -189,13 +188,8 @@ namespace cds { namespace container {
 							 break;
 
 					 }
-				 } else {
-
 				 }
-				 i++;
-				 if( i == maxThread)
-					 i = 0;
-			} while( i!=start );
+			}
 			bool temp = wasEmpty[threadIND];
 			wasEmpty[threadIND] = empty;
 			empty = empty && temp;
@@ -259,13 +253,15 @@ namespace cds { namespace container {
 			node* timestamped = node_allocator().New();
 
 			timestamped->item = pvalue;
+			guard defender;
 			if(fromL)
-				localBuffers[index].insertLeft(timestamped);
+				localBuffers[index].insertLeft(timestamped, defender);
 			else
-				localBuffers[index].insertRight(timestamped);
+				localBuffers[index].insertRight(timestamped, defender);
 			itemCounter++;
 			unsigned long t = platform::getTimestamp();
 			timestamped->timestamp = t;
+			defender.clear();
 			if(fromL)
 				stats.pushLeft++;
 			else
@@ -281,13 +277,16 @@ namespace cds { namespace container {
 			node* timestamped = node_allocator().New();
 
 			timestamped->item = pvalue;
+			guard defender;
+			defender.clear();
 			if(fromL)
-				localBuffers[index].insertLeft(timestamped);
+				localBuffers[index].insertLeft(timestamped, defender);
 			else
-				localBuffers[index].insertRight(timestamped);
+				localBuffers[index].insertRight(timestamped, defender);
 			itemCounter++;
 			unsigned long t = platform::getTimestamp();
 			timestamped->timestamp = t;
+			defender.clear();
 			if(fromL)
 				stats.pushLeft++;
 			else
@@ -791,14 +790,14 @@ namespace cds { namespace container {
 							return rightMost.compare_exchange_strong(oldOne, newOne);
 					}
 
-					void insert(node* timestamped, bool toLeft) {
+					void insert(node* timestamped, guard& defender, bool toLeft) {
 
 
 						buffer_node* newNode = buffernode_allocator().New();
 						newNode->index = (toLeft ? -lastIndex : lastIndex);
 						newNode->item = timestamped;
 						lastIndex += 1;
-
+						defender.protect(std::atomic<buffer_node*>(newNode));
 						std::stringstream ss;
 						ss << '|' << index << "|Inserted|" << newNode;
 						guestCounter++;
@@ -836,12 +835,12 @@ namespace cds { namespace container {
 						logger->write(ss.str());
 					}
 
-		 			void insertRight(node* timestamped) {
-						insert(timestamped, false);
+		 			void insertRight(node* timestamped, guard& defender) {
+						insert(timestamped, defender, false);
 		 			}
 
-		 			void insertLeft(node* timestamped) {
-						insert(timestamped, true);
+		 			void insertLeft(node* timestamped, guard& defender) {
+						insert(timestamped, defender, true);
 		 			}
 
 		 			bool get( guard& found ,guard& start, bool fromL) {
