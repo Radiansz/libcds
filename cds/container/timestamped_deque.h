@@ -518,10 +518,84 @@ namespace cds { namespace container {
 
 
 		 		private:
+					class Stack {
+						static const int mainSize = 100;
+						static const int additionalSize = 25;
+						buffer_node* mainStorage[mainSize];
+						int last;
+						bool filled;
+						struct lnode {
+							buffer_node* storage[additionalSize];
+							lnode* next;
+							lnode(lnode* next): next(next) {
+							}
+						};
+						lnode* head;
+
+						void addNew() {
+							filled = true;
+							last = 0;
+							lnode* node = new lnode(head);
+							head = node;
+						}
+
+						void remove() {
+							lnode* old = head;
+							head = head->next;
+							if(head == nullptr) {
+								filled = false;
+								last = mainSize;
+							} else {
+								last = additionalSize;
+							}
+							delete old;
+						}
+
+					public:
+						Stack() {
+							head = nullptr;
+							last = 0;
+							filled = false;
+						}
+
+						void push(buffer_node* item) {
+							if(!filled) {
+								if(last == mainSize) {
+									addNew();
+									push(item);
+									return;
+								}
+								mainStorage[last] = item;
+								last++;
+
+							} else {
+								if(last == additionalSize)
+									addNew();
+								head->storage[last] = item;
+								last++;
+							}
+						}
+
+						buffer_node* pop() {
+							if(!filled) {
+								if(last == 0)
+									return nullptr;
+								last--;
+								return mainStorage[last];
+							} else {
+								last--;
+								buffer_node* toReturn = head->storage[last];
+								if(last == 0)
+									remove();
+								return  toReturn;
+							}
+						}
+
+					};
 					struct garbage_node {
 						unsigned long timestamp;
 						buffer_node* item;
-						std::vector<buffer_node*> delayed;
+						Stack delayed;
 
 						garbage_node() {
 							timestamp = platform::getTimestamp();
@@ -536,6 +610,8 @@ namespace cds { namespace container {
 						}
 					};
 
+
+
 		 			template <typename M>
 					struct disposer {
 						void operator ()( buffer_node * p ) {
@@ -547,8 +623,10 @@ namespace cds { namespace container {
 					};
 
 					void cleanUnlinked(garbage_node* condemned, bool delayed) {
-						for(typename std::vector<buffer_node*>::iterator it = condemned->delayed.begin(); it != condemned->delayed.end(); ++it) {
-							freeNode(*it, delayed, condemned);
+						buffer_node* toDel = condemned->delayed.pop();
+						while(toDel != nullptr) {
+							freeNode(toDel, delayed, condemned);
+							toDel = condemned->delayed.pop();
 						}
 					}
 
@@ -586,42 +664,6 @@ namespace cds { namespace container {
 						return place;
 					}
 
-					void countGarbage(buffer_node* node) {
-
-						buffer_node* cur = node;
-						stats->delayedToFree++;
-						if(!cur->taken.load())
-							stats->wrongDelayed++;
-//						std::stringstream ss1;
-//						ss1 << '|' << index << "|Freed|" << cur;
-//						logger->write(ss1.str());
-						if(cur->isDeletedFromLeft) {
-							while(cur->left.load() != cur) {
-								cur = cur->left.load();
-								stats->delayedToFree++;
-								if(!cur->taken.load())
-									stats->wrongDelayed++;
-//								std::stringstream ss;
-//								ss << '|' << index << "|Freed|" << cur;
-//								logger->write(ss.str());
-
-							}
-						} else {
-							while(cur->right.load() != cur) {
-								cur = cur->right.load();
-								stats->delayedToFree++;
-								if(!cur->taken.load())
-									stats->wrongDelayed++;
-//								std::stringstream ss;
-//								ss << '|' << index << "|Freed|" << cur;
-//								logger->write(ss.str());
-
-							}
-						}
-
-					}
-
-
 					garbage_node* makeGarbageNode(buffer_node* node) {
 						bool temp = false;
 
@@ -640,7 +682,7 @@ namespace cds { namespace container {
 								logger->write(ss1.str());
 								stats->delayedToFree++;
 								// delay
-								gNode->delayed.push_back(cur);
+								gNode->delayed.push(cur);
 								if(!cur->taken.load())
 									stats->wrongDelayed++;
 
@@ -742,7 +784,8 @@ namespace cds { namespace container {
 					Statistic* stats;
 					Logger* logger;
 		 		public:
-					void setIndex(int index) {
+					void setIndex(int index)
+					{
 						this->index = index;
 					}
 		 			typedef typename cds::details::Allocator<ThreadBuffer::buffer_node, typename traits::buffernode_allocator> buffernode_allocator;
