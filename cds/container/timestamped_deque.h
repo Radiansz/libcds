@@ -468,8 +468,8 @@ namespace cds { namespace container {
 		 					taken.store(false);
 		 					left.store(this);
 		 					right.store(this);
-							delayed.store(false);
 							toInsert = false;
+							delayed.clear();
 
 		 				}
 
@@ -479,7 +479,7 @@ namespace cds { namespace container {
 		 				int index;
 		 				std::atomic<bool> taken;
 						std::atomic<bool> toInsert;
-						std::atomic<bool> delayed;
+						std::atomic_flag delayed;
 		 				bool isDeletedFromLeft;
 						buffer_node* go(bool toLeft) {
 							return toLeft ? left.load() : right.load();
@@ -634,7 +634,7 @@ namespace cds { namespace container {
 						do {
 							temp = false;
 							cur = next;
-							if(cur->delayed.compare_exchange_strong(temp, true)) {
+							if(!cur->delayed.test_and_set()) {
 								std::stringstream ss1;
 								ss1 << '|' << index << "|Delayed|" << cur;
 								logger->write(ss1.str());
