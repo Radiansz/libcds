@@ -518,269 +518,13 @@ namespace cds { namespace container {
 
 
 		 		private:
-					class Stack {
-						static const int mainSize = 100;
-						static const int additionalSize = 25;
-						buffer_node* mainStorage[mainSize];
-						int last;
-						bool filled;
-						struct lnode {
-							buffer_node* storage[additionalSize];
-							lnode* next;
-							lnode(lnode* next): next(next) {
-							}
-						};
-						lnode* head;
 
-						void addNew() {
-							filled = true;
-							last = 0;
-							lnode* node = new lnode(head);
-							head = node;
-						}
-
-						void remove() {
-							lnode* old = head;
-							head = head->next;
-							if(head == nullptr) {
-								filled = false;
-								last = mainSize;
-							} else {
-								last = additionalSize;
-							}
-							delete old;
-						}
-
-					public:
-						Stack() {
-							head = nullptr;
-							last = 0;
-							filled = false;
-						}
-
-						void push(buffer_node* item) {
-							if(!filled) {
-								if(last == mainSize) {
-									addNew();
-									push(item);
-									return;
-								}
-								mainStorage[last] = item;
-								last++;
-
-							} else {
-								if(last == additionalSize)
-									addNew();
-								head->storage[last] = item;
-								last++;
-							}
-						}
-
-						buffer_node* pop() {
-							if(!filled) {
-								if(last == 0)
-									return nullptr;
-								last--;
-								return mainStorage[last];
-							} else {
-								last--;
-								buffer_node* toReturn = head->storage[last];
-								if(last == 0)
-									remove();
-								return  toReturn;
-							}
-						}
-
-					};
-					struct garbage_node {
-						unsigned long timestamp;
-						buffer_node* item;
-						Stack delayed;
-
-						garbage_node() {
-							timestamp = platform::getTimestamp();
-						}
-
-						garbage_node(buffer_node* item): item(item) {
-							timestamp = platform::getTimestamp();
-						}
-
-						~garbage_node() {
-							std::cout << "Gnode_delete" << std::endl;
-						}
-					};
-
-
-
-		 			template <typename M>
-					struct disposer {
-						void operator ()( buffer_node * p ) {
-							if(p->item != nullptr)
-								allocator().Delete(p->item->item);
-							node_allocator().Delete(p->item);
-							buffernode_allocator().Delete(p);
-						}
-					};
-
-					void cleanUnlinked(garbage_node* condemned, bool delayed) {
-						buffer_node* toDel = condemned->delayed.pop();
-						while(toDel != nullptr) {
-							freeNode(toDel, delayed, condemned);
-							toDel = condemned->delayed.pop();
-						}
-					}
-
-
-
-
-					void freeNode(disposer<buffer_node*> &executioner, buffer_node* toDel, bool delayed, garbage_node* origin = nullptr) {
-
-						if(delayed)
-							cds::gc::HP::retire<disposer<buffer_node> >(toDel);
-						else
-							executioner(toDel);
-						std::stringstream ss;
-
-						ss << '|' << index << "|Freed|" << toDel << "|" << origin;
-						logger->write(ss.str());
-
-						stats->freedAmount++;
-					}
-
-					void freeNode(buffer_node* toDel, bool delayed = true, garbage_node* origin = nullptr) {
-						disposer<buffer_node*> executioner;
-						freeNode(executioner, toDel, delayed, origin);
-					}
-
-					int findEmptyCell() {
-						int place = -1;
-						garbage_node* candidate;
-						for(int i=0; i < garbageSize; i++ ) {
-							candidate = garbageArray[i].load();
-							if(candidate == nullptr) {
-								place = i;
-							}
-						}
-						return place;
-					}
-
-					garbage_node* makeGarbageNode(buffer_node* node) {
-						bool temp = false;
-
-						garbage_node* gNode = gnode_allocator().New();
-						gNode->item = node;
-
-						buffer_node* cur = node,
-								*next = node;
-						bool fromLeft = cur->isDeletedFromLeft;
-						do {
-							temp = false;
-							cur = next;
-							if(!cur->delayed.test_and_set()) {
-								std::stringstream ss1;
-								ss1 << '|' << index << "|Delayed|" << cur;
-								logger->write(ss1.str());
-								stats->delayedToFree++;
-								// delay
-								gNode->delayed.push(cur);
-								if(!cur->taken.load())
-									stats->wrongDelayed++;
-
-							}
-							next = cur->go(fromLeft);
-
-						} while(next != cur);
-						gNode->timestamp = platform::getTimestamp();
-						return gNode;
-					}
-
-					void putToGarbage(garbage_node* delayedChunk) {
-
-						garbage_node* gNode = delayedChunk;
-						garbage_node* tmp;
-
-						int place = findEmptyCell();
-						do {
-							tmp = nullptr;
-							place = -1;
-							while(place == -1) {
-								// Phew
-								while (!tryToCleanGarbage(true)) { }
-								place = findEmptyCell();
-							}
-						} while(!garbageArray[place].compare_exchange_strong(tmp, gNode));
-
-					}
-
-					bool tryToCleanGarbage(bool single = false) {
-						unsigned long timestamp = platform::getTimestamp();
-						bool cleaned = false;
-						if(guestCounter.load() == 0) {
-							int place = -1;
-							garbage_node* candidate;
-							for(int i=0; i < garbageSize; i++ ) {
-								candidate = garbageArray[i].load();
-								if(candidate != nullptr) {
-									if (candidate->timestamp < timestamp) {
-										place = i;
-
-
-										if (garbageArray[i].compare_exchange_strong(candidate, nullptr)) {
-
-											cleanUnlinked(candidate, true);
-											cleaned = true;
-											if (single)
-												return cleaned;
-										}
-									}
-								}
-							}
-							if(place == -1)
-								return true;
-
-
-						}
-						return cleaned;
-					}
-
-					bool canBeUnlinked(buffer_node* node, bool fromL) {
-						guestCounter++;
-						buffer_node* cur = node;
-						if(fromL) {
-							do {
-								if(cur->taken.load() && !cur->toInsert.load() && cur->left.load() != leftMost.load()) {
-									cur = cur->left.load();
-								} else {
-									stats->notAllowedUnlinking++;
-									guestCounter--;
-									return false;
-								}
-							} while(cur->left.load() != cur);
-						} else {
-							do {
-								if(cur->taken.load() && !cur->toInsert.load() && cur->right.load() != rightMost.load()) {
-									cur = cur->right.load();
-								} else {
-									stats->notAllowedUnlinking++;
-									guestCounter--;
-									return false;
-								}
-							} while(cur->right.load() != cur);
-						}
-						guestCounter--;
-						return  true;
-
-					}
 
 		 			std::atomic<buffer_node*> leftMost;
 		 			std::atomic<buffer_node*> rightMost;
-		 			std::vector<buffer_node*> garbage;
-					std::atomic<garbage_node*> *garbageArray;
 					int garbageSize;
 					int index;
 		 			long lastIndex;
-					std::atomic<int> guestCounter;
-					std::atomic<bool> inserting;
 					Statistic* stats;
 					Logger* logger;
 		 		public:
@@ -789,34 +533,19 @@ namespace cds { namespace container {
 						this->index = index;
 					}
 		 			typedef typename cds::details::Allocator<ThreadBuffer::buffer_node, typename traits::buffernode_allocator> buffernode_allocator;
-					typedef typename cds::details::Allocator<ThreadBuffer::garbage_node, typename traits::gnode_allocator> gnode_allocator;
 
 					ThreadBuffer() : lastIndex(1) {
-						garbageSize = 20;
 		 				buffer_node* newNode = buffernode_allocator().New();
 		 				newNode->index = 0;
 		 				newNode->item = nullptr;
 		 				newNode->taken.store(true);
 		 				leftMost.store(newNode);
 		 				rightMost.store(newNode);
-						inserting.store(false);
-		 				guestCounter.store(0);
-						garbageArray = new std::atomic<garbage_node*>[garbageSize];
-						for(int i=0; i < garbageSize; i++)
-							garbageArray[i].store(nullptr);
 
 		 			}
 
 
 		 			~ThreadBuffer() {
-						buffer_node* curNode = rightMost.load();
-						disposer<buffer_node*> executioner;
-						while(curNode != curNode->left.load()) {
-							buffer_node* temp = curNode;
-							curNode = curNode->left.load();
-							freeNode(executioner, temp, false);
-						}
-						freeNode(executioner, curNode, false);
 
 					}
 
@@ -868,10 +597,7 @@ namespace cds { namespace container {
 						newNode->item = timestamped;
 						lastIndex += 1;
 						defender.protect(std::atomic<buffer_node*>(newNode));
-						std::stringstream ss;
-						ss << '|' << index << "|Inserted|" << newNode;
-						guestCounter++;
-						inserting.store(true);
+
 						buffer_node* place = toLeft ? leftMost.load() : rightMost.load();
 						buffer_node* next = place->go(!toLeft);
 
@@ -889,20 +615,6 @@ namespace cds { namespace container {
 						place->setNeighbour(newNode, toLeft);
 						setBorder(newNode, toLeft);
 
-						inserting.store(false);
-
-						if(tail != place) {
-
-							tail->isDeletedFromLeft = toLeft;
-							garbage_node* garbage = makeGarbageNode(tail);
-							guestCounter--;
-							putToGarbage(garbage);
-							stats->delayedFromInsert++;
-						} else {
-							guestCounter--;
-						}
-
-						logger->write(ss.str());
 					}
 
 		 			void insertRight(node* timestamped, guard& defender) {
@@ -917,23 +629,15 @@ namespace cds { namespace container {
 
 						std::stringstream ss;
 
-						guestCounter++;
 						start.protect( (fromL ? leftMost : rightMost));
 						buffer_node *oldStart = start.get<buffer_node>(),
 								*oldEnd = fromL ? rightMost.load() : leftMost.load();
 
 						buffer_node* res = oldStart;
-						buffer_node* lastOne = nullptr;
-						std::map<buffer_node*, bool> visited;
-						typename std::map<buffer_node*, bool>::iterator it;
 
-
-						visited.insert(std::pair<buffer_node*, bool>(res, true));
 
 						while(true) {
 							if(!fromL && res->index < oldEnd->index || fromL && res->index > oldEnd->index) {
-								guestCounter--;
-
 								return false;
 							}
 							if(!res->taken.load()) {
@@ -942,23 +646,10 @@ namespace cds { namespace container {
 								break;
 							}
 							if(res->go(!fromL) == res) {
-								guestCounter--;
-
 								return false;
 							}
-							lastOne = res;
 							res = res->go(!fromL);
-							it = visited.find(res);
-
-							if(it == visited.end()) {
-								visited.insert(std::pair<buffer_node*, bool>(res, true));
-							} else {
-
-								logger->write(ss.str());
-								throw EndlessLoopException(visited.size());
-							}
 						}
-						guestCounter--;
 						return true;
 		 			}
 
@@ -975,8 +666,6 @@ namespace cds { namespace container {
 
 
 		 			bool tryRemove(guard& takenNode, guard& start, bool fromL) {
-						guestCounter++;
-						std::stringstream ss;
 						buffer_node* node = takenNode.get<buffer_node>();
 						buffer_node* temp = node->go(fromL);
 						buffer_node* startPoint = start.get<buffer_node>();
@@ -984,24 +673,10 @@ namespace cds { namespace container {
 						bool t = false;
 						if(node->taken.compare_exchange_strong(t, true)) {
 							if( tryToSetBorder(node, startPoint, fromL)) {
-								if( temp != node && !inserting.load() && isBorder(node, fromL) && node->trySetNeighbour(node, temp, fromL)) {
-									temp->isDeletedFromLeft = fromL;
-									stats->delayedFromDelete++;
-									garbage_node* garbage = makeGarbageNode(temp);
-									guestCounter--;
-									putToGarbage(garbage);
-
-									return true;
-								}
 							}
-							guestCounter--;
-							tryToCleanGarbage();
 
-							//logger->write(ss.str());
 							return true;
 						}
-						//logger->write(ss.str());
-						guestCounter--;
 						return false;
 		 			}
 
