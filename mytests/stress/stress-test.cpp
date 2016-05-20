@@ -3,10 +3,12 @@
 #include <cds/init.h>
 #include <cds/gc/hp.h>
 #include <cds/container/timestamped_deque.h>
-#define DATA_SIZE 1000000
-#define THREADS_AMOUNT 8
+#include <boost/timer/timer.hpp>
+#include <fstream>
 
-int readAm = 10000, writeAm = 10000, readThreads=4, writeThreads=4;
+using boost::timer::cpu_timer;
+
+int readAm = 10000, writeAm = 1000, readThreads=3, writeThreads=1;
 
 
 
@@ -14,12 +16,6 @@ struct traits_TSDeque_ic : public cds::container::timestamped_deque::traits
 {
     typedef cds::atomicity::item_counter item_counter;
 };
-
-void separate(int full, int parts, int &partSize, int &tail) {
-    partSize = full/parts;
-    tail = full % parts;
-}
-
 
 struct TestStruct {
     TestStruct():data(0) {
@@ -32,8 +28,30 @@ struct TestStruct {
 
 };
 
-cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque;
+
 boost::barrier *startBarrier;
+cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque;
+class DequeTest_stress : public ::testing::Test
+{
+    protected:
+        void SetUp()
+        {
+            deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
+
+        }
+        void TearDown()
+        {
+
+        }
+
+};
+
+
+void separate(int full, int parts, int &partSize, int &tail) {
+    partSize = full/parts;
+    tail = full % parts;
+}
+
 
 void tester(int ti) {
     std::cout << ti << std::endl;
@@ -94,16 +112,16 @@ void frontWriter(int size, int t) {
 
 
 
-TEST(TSDeque_stress, As_a_stack) {
+TEST_F(DequeTest_stress, As_a_stack) {
     int writePart, writeTail;
     int readPart, readTail;
     int sumThread = readThreads + writeThreads;
     separate(readAm, readThreads, readPart, readTail);
     separate(writeAm, writeThreads, writePart, writeTail);
 
-    deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
-    int amount = THREADS_AMOUNT/2;
-    startBarrier = new boost::barrier(sumThread);
+
+
+    startBarrier = new boost::barrier(sumThread+1);
     boost::thread **threads = new boost::thread*[sumThread];
 
 //Read
@@ -116,22 +134,28 @@ TEST(TSDeque_stress, As_a_stack) {
         int curPart = (i+1 != writeThreads ? writePart : (writePart + writeTail));
         threads[i+readThreads] = new boost::thread(backWriter, curPart, i+readThreads);
     }
+    boost::timer::cpu_timer timer;
+    startBarrier->wait();
 //Waiting to end
     for(int i = 0; i < sumThread; i++)
         threads[i]->join();
+    timer.stop();
+    std::ofstream outfile;
+    outfile.open("result.csv", std::ios_base::app);
+    outfile << timer.format(3, "%w") << "," << writeAm + readAm << "," << writeAm << "," << readAm << "," << writeThreads + readThreads << "\n";
+    std::cout << "TIME!!!!!:" << timer.format(3, "%w") << std::endl;
     deque->printStats();
 }
 
-TEST(TSDeque_stress, As_a_queue) {
+TEST(DequeTest_strsess, As_a_queue) {
     int writePart, writeTail;
     int readPart, readTail;
     int sumThread = readThreads + writeThreads;
     separate(readAm, readThreads, readPart, readTail);
     separate(writeAm, writeThreads, writePart, writeTail);
-
     deque = new cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic>();
-    int amount = THREADS_AMOUNT/2;
-    startBarrier = new boost::barrier(sumThread);
+
+    startBarrier = new boost::barrier(sumThread+1);
     boost::thread **threads = new boost::thread*[sumThread];
 
     //Read
@@ -145,8 +169,17 @@ TEST(TSDeque_stress, As_a_queue) {
         threads[i+readThreads] = new boost::thread(backWriter, curPart, i+readThreads);
     }
     //Waiting to end
+
+    boost::timer::cpu_timer timer;
+    startBarrier->wait();
+    //Waiting to end
     for(int i = 0; i < sumThread; i++)
     threads[i]->join();
+    timer.stop();
+    std::ofstream outfile;
+    outfile.open("result.csv", std::ios_base::app);
+    outfile << timer.format(3, "%w") << "," << writeAm + readAm << "," << writeAm << "," << readAm << "," << writeThreads + readThreads << "\n";
+    std::cout << "TIME!!!!!:" << timer.format(3, "%w") << std::endl;
     deque->printStats();
 }
 
@@ -177,6 +210,7 @@ int main(int argc, char *argv[]) {
     cds::Initialize();
     cds::threading::Manager::attachThread();
 
-    return RUN_ALL_TESTS();
+
+    return   RUN_ALL_TESTS();
 
 }
