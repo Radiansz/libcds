@@ -1,3 +1,12 @@
+// ** params -wa = amount of elements to write per thread
+// **        -ra = amount of elements to read per thread
+// **        -wt = amount of writers thread
+// **        -rt = amount of readers thread
+// **        -out = output file, no output if not specified
+// **        Output format:
+// **          1 test execution per string, string content:
+// **               executionTime,operationWithEmpty,writesAmountPerThread,readsAmountPerThread,writers,readers,emptyOperations,failedOperations,freedNodes
+
 #include <iostream>
 #include <gtest/gtest.h>
 #include <cds/init.h>
@@ -106,13 +115,25 @@ void frontWriter(int size, int t) {
     cds::threading::Manager::detachThread();
 }
 
+void printResult(boost::timer::cpu_timer &timer) {
+    if(outEnabled) {
+        cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >::Statistic *stats = deque->getStats();
+        std::ofstream outfile;
+        outfile.open(outFile, std::ios_base::app);
+        outfile << timer.format(3, "%w") << "," << writeAm*writeThreads + readAm*readThreads << "," << writeAm << "," << readAm << "," <<
+        writeThreads << "," << readThreads << "," <<stats->emptyPopLeft.load() + stats->emptyPopRight.load() << "," << stats->failedPopLeft.load() + stats->failedPopRight.load() <<
+        "," << stats->freedAmount.load() << "\n";
+        std::cout << "TIME!!!!!:" << timer.format() << std::endl;
+        deque->printStats();
+    }
+}
 
 TEST_F(DequeTest_stress, As_a_stack) {
-    int writePart, writeTail;
-    int readPart, readTail;
+    int writePart = writeAm, writeTail = 0;
+    int readPart = readAm, readTail = 0;
     int sumThread = readThreads + writeThreads;
-    separate(readAm, readThreads, readPart, readTail);
-    separate(writeAm, writeThreads, writePart, writeTail);
+//    separate(readAm, readThreads, readPart, readTail);
+//    separate(writeAm, writeThreads, writePart, writeTail);
 
 
 
@@ -135,22 +156,16 @@ TEST_F(DequeTest_stress, As_a_stack) {
     for(int i = 0; i < sumThread; i++)
         threads[i]->join();
     timer.stop();
-    if(outEnabled) {
-        std::ofstream outfile;
-        outfile.open(outFile, std::ios_base::app);
-        outfile << timer.format(3, "%w") << "," << writeAm + readAm << "," << writeAm << "," << readAm << "," <<
-        writeThreads + readThreads << "\n";
-        std::cout << "TIME!!!!!:" << timer.format(3, "%w") << std::endl;
-        deque->printStats();
-    }
+    printResult(timer);
+
 }
 
 TEST_F(DequeTest_stress, As_a_queue) {
-    int writePart, writeTail;
-    int readPart, readTail;
+    int writePart = writeAm, writeTail = 0;
+    int readPart = readAm, readTail = 0;
     int sumThread = readThreads + writeThreads;
-    separate(readAm, readThreads, readPart, readTail);
-    separate(writeAm, writeThreads, writePart, writeTail);
+//    separate(readAm, readThreads, readPart, readTail);
+//    separate(writeAm, writeThreads, writePart, writeTail);
 
 
     startBarrier = new boost::barrier(sumThread+1);
@@ -166,30 +181,21 @@ TEST_F(DequeTest_stress, As_a_queue) {
         int curPart = (i+1 != writeThreads ? writePart : (writePart + writeTail));
         threads[i+readThreads] = new boost::thread(backWriter, curPart, i+readThreads);
     }
-    //Waiting to end
-
     boost::timer::cpu_timer timer;
     startBarrier->wait();
     //Waiting to end
     for(int i = 0; i < sumThread; i++)
     threads[i]->join();
     timer.stop();
-    if(outEnabled) {
-        std::ofstream outfile;
-        outfile.open(outFile, std::ios_base::app);
-        outfile << timer.format(3, "%w") << "," << writeAm + readAm << "," << writeAm << "," << readAm << "," <<
-        writeThreads + readThreads << "\n";
-        std::cout << "TIME!!!!!:" << timer.format(3, "%w") << std::endl;
-        deque->printStats();
-    }
+    printResult(timer);
 }
 
 TEST_F(DequeTest_stress, As_a_deque) {
-    int writePart, writeTail;
-    int readPart, readTail;
+    int writePart = writeAm, writeTail = 0;
+    int readPart = readAm, readTail = 0;
     int sumThread = readThreads + writeThreads;
-    separate(readAm, readThreads, readPart, readTail);
-    separate(writeAm, writeThreads, writePart, writeTail);
+//    separate(readAm, readThreads, readPart, readTail);
+//    separate(writeAm, writeThreads, writePart, writeTail);
 
 
     startBarrier = new boost::barrier(sumThread+1);
@@ -211,22 +217,13 @@ TEST_F(DequeTest_stress, As_a_deque) {
         else
             threads[i+readThreads] = new boost::thread(frontWriter, curPart, i+readThreads);
     }
-    //Waiting to end
-
     boost::timer::cpu_timer timer;
     startBarrier->wait();
     //Waiting to end
     for(int i = 0; i < sumThread; i++)
         threads[i]->join();
     timer.stop();
-    if(outEnabled) {
-        std::ofstream outfile;
-        outfile.open(outFile, std::ios_base::app);
-        outfile << timer.format(3, "%w") << "," << writeAm + readAm << "," << writeAm << "," << readAm << "," <<
-        writeThreads + readThreads << "\n";
-        std::cout << "TIME!!!!!:" << timer.format(3, "%w") << std::endl;
-        deque->printStats();
-    }
+    printResult(timer);
 }
 
 

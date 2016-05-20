@@ -60,6 +60,10 @@ namespace cds { namespace container {
  			node(): timestamp(0) {}
  		};
 
+
+
+
+	public:
 		struct Statistic {
 			std::atomic<int> failedPopLeft;
 			std::atomic<int> failedPopRight;
@@ -100,8 +104,6 @@ namespace cds { namespace container {
 			}
 		};
 
-
-	public:
 		class Logger;
 		class EndlessLoopException;
 	 	typedef T value_type;
@@ -420,6 +422,10 @@ namespace cds { namespace container {
 			return 14;
 		}
 
+		Statistic* getStats() {
+			return &stats;
+		}
+
 		void printStats() {
 			std::cout << "----------------------------------------------------------------------------------\n";
 			std::cout << "VERS:1 \n";
@@ -446,6 +452,8 @@ namespace cds { namespace container {
 			std::cout << "----------------------------------------------------------------------------------\n";
 
 		}
+
+
 
 		private:
 		class ThreadBuffer {
