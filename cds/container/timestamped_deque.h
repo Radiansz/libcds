@@ -178,8 +178,9 @@ namespace cds { namespace container {
 			 int threadIND = acquireIndex();
 			 unsigned long startTime = platform::getTimestamp();
 			 int bufferIndex = 0;
-
-			 for(int i = 0; i < maxThread; i++) {
+			 int start = rand() % maxThread,
+			     i = start;
+			 do {
 				 if(localBuffers[i].get(candidate, startCandidate, fromL)) {
 					 if(isMore(candidate.get<bnode>(), toRemove.get<bnode>(), fromL)) {
 						 isFound = true;
@@ -192,7 +193,10 @@ namespace cds { namespace container {
 
 					 }
 				 }
-			}
+				 i++;
+				 if(i == maxThread)
+					 i = 0;
+			} while(i != start);
 			bool temp = wasEmpty[threadIND];
 			wasEmpty[threadIND] = empty;
 			empty = empty && temp;
