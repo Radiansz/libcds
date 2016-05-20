@@ -75,6 +75,7 @@ void backReader(int size, int t) {
         try {
             deque->pop_back(t);
         } catch (cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >::EndlessLoopException& e) {
+            ADD_FAILURE();
             break;
         }
     }
@@ -99,6 +100,7 @@ void frontReader(int size, int t) {
         try {
             deque->pop_front(t);
         } catch (cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >::EndlessLoopException& e) {
+            ADD_FAILURE();
             break;
         }
     }
