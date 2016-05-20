@@ -11,7 +11,8 @@ option(WITH_TESTS_COVERAGE "Analyze test coverage using gcov (only for gcc)" OFF
 option(WITH_BOOST_ATOMIC "Use boost atomics (only for boost >= 1.54)" OFF)
 
 find_package(Threads REQUIRED)
-find_package(Boost 1.50 COMPONENTS system thread REQUIRED)
+find_package(Boost 1.50 COMPONENTS system thread timer REQUIRED)
+find_package(GTest REQUIRED)
 
 include_directories(${Boost_INCLUDE_DIRS})
 
@@ -85,7 +86,7 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/cds DESTINATION include COMPONENT ${HEADER
 
 if(WITH_TESTS)
   enable_testing()
-  add_subdirectory(${CMAKE_SOURCE_DIR}/mytests)
+  add_subdirectory(${CMAKE_SOURCE_DIR}/tests)
   message(STATUS "Build tests: activated")
 endif(WITH_TESTS)
 
