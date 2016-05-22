@@ -195,6 +195,14 @@ namespace cds {
                     curBuffer = curNode->buffer;
 
                     if (curBuffer->get(candidate, startCandidate, fromL)) {
+                        if(!isFound) {
+                            neededBuffer = curBuffer;
+                            isFound = true;
+                            toRemove.copy(candidate);
+                            startPoint.copy(startCandidate);
+                            if (candidate.get<bnode>()->item->timestamp == 0)
+                                break;
+                        }
                         if (isMore(candidate.get<bnode>(), toRemove.get<bnode>(), fromL)) {
                             neededBuffer = curBuffer;
                             isFound = true;
@@ -890,14 +898,16 @@ namespace cds {
                 bool tryRemove(guard &takenNode, guard &start, bool fromL) {
                     guestCounter++;
                     std::stringstream ss;
-                    buffer_node *node = takenNode.get<buffer_node>();
-                    buffer_node *temp = node->go(fromL);
                     buffer_node *startPoint = start.get<buffer_node>();
+                    buffer_node *node = takenNode.get<buffer_node>();
+                    buffer_node *temp = startPoint->go(fromL);
+
+                    buffer_node *opposite = fromL ? rightMost.load() : leftMost.load();
                     // to delete, oldRight, to unlink
                     bool t = false;
                     if (node->taken.compare_exchange_strong(t, true)) {
                         if (tryToSetBorder(node, startPoint, fromL)) {
-                            if (temp != node && !inserting.load() && isBorder(node, fromL) &&
+                            if (temp != node && !inserting.load() && isBorder(node, fromL) && isBorder(opposite, !fromL) &&
                                 node->trySetNeighbour(node, temp, fromL)) {
                                 temp->isDeletedFromLeft = fromL;
                                 stats->delayedFromDelete++;
