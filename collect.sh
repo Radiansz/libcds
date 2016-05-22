@@ -1,5 +1,5 @@
 COUNTER=3
-STEPS=10
+STEPS=4
 THR=2
 FILE=$HOME/result.txt
 echo executionTime,operationWithEmpty,writesAmountPerThread,readsAmountPerThread,writers,readers,emptyOperations,failedOperations,freedNodes >> $FILE
@@ -18,7 +18,7 @@ do
 done
 
 COUNTER=3
-STEPS=10
+STEPS=4
 THR=2
 echo stack >> $FILE
 while [ "$STEPS" -ne  0 ]
@@ -35,7 +35,7 @@ do
 done
 
 COUNTER=3
-STEPS=10
+STEPS=4
 THR=2
 echo deque >> $FILE
 while [ "$STEPS" -ne  0 ]
@@ -50,4 +50,3 @@ do
 	THR=$(( $THR + 1 ))
 	STEPS=$(( $STEPS - 1 ))
 done
-
