@@ -55,7 +55,7 @@ namespace cds { namespace container {
 
  		struct buffer_node;
  		struct node {
- 			unsigned long timestamp;
+ 			std::atomic<unsigned long> timestamp;
  			T* item;
  			node(): timestamp(0) {}
  		};
@@ -181,7 +181,18 @@ namespace cds { namespace container {
 			 int start = rand() % maxThread,
 			     i = start;
 			 do {
+//				 std::cout << "..";
+//				 std::cout << (localBuffers[i].isSane(fromL) ? 's' : 'i') << "..";
 				 if(localBuffers[i].get(candidate, startCandidate, fromL)) {
+					 if(!isFound) {
+						 isFound = true;
+						 empty = false;
+						 toRemove.copy(candidate);
+						 startPoint.copy(startCandidate);
+						 bufferIndex = i;
+						 if(candidate.get<bnode>()->item->timestamp == 0)
+							 break;
+					 }
 					 if(isMore(candidate.get<bnode>(), toRemove.get<bnode>(), fromL)) {
 						 isFound = true;
 						 empty = false;
@@ -197,13 +208,17 @@ namespace cds { namespace container {
 				 if(i == maxThread)
 					 i = 0;
 			} while(i != start);
+//			std::cout << ";\n";
 			bool temp = wasEmpty[threadIND];
 			wasEmpty[threadIND] = empty;
 			empty = empty && temp;
 
 
-			if(doEmptyCheck() || empty)
-				return nullptr;
+			if(!isFound) {
+//				std::cout << "Test:" << itemCounter << "\n";
+				if(doEmptyCheck())
+					return nullptr;
+			}
 
 			if(isFound) {
 				bnode* borderNode = toRemove.get<bnode>();
@@ -261,11 +276,12 @@ namespace cds { namespace container {
 
 			timestamped->item = pvalue;
 			guard defender;
+			itemCounter++;
 			if(fromL)
 				localBuffers[index].insertLeft(timestamped, defender);
 			else
 				localBuffers[index].insertRight(timestamped, defender);
-			itemCounter++;
+
 			unsigned long t = platform::getTimestamp();
 			timestamped->timestamp = t;
 			defender.clear();
@@ -286,11 +302,12 @@ namespace cds { namespace container {
 			timestamped->item = pvalue;
 			guard defender;
 			defender.clear();
+			itemCounter++;
 			if(fromL)
 				localBuffers[index].insertLeft(timestamped, defender);
 			else
 				localBuffers[index].insertRight(timestamped, defender);
-			itemCounter++;
+
 			unsigned long t = platform::getTimestamp();
 			timestamped->timestamp = t;
 			defender.clear();
@@ -321,6 +338,10 @@ namespace cds { namespace container {
 				else
 					stats.successPopRight++;
 				stats.poppedAmount++;
+				if(itemCounter == 0) {
+					std::cout << "Danger";
+
+				}
 				itemCounter--;
 				val = *temp->item->item;
 				return true;
@@ -337,6 +358,8 @@ namespace cds { namespace container {
 		public:
 
 		Timestamped_deque() {
+
+
 			logger = new Logger();
 			maxThread = cds::gc::HP::max_thread_count();
 			localBuffers = new ThreadBuffer[maxThread];
@@ -819,7 +842,7 @@ namespace cds { namespace container {
 
 					void insert(node* timestamped, guard& defender, bool toLeft) {
 
-
+//						std::cout << "insert-start" << std::endl;
 						buffer_node* newNode = buffernode_allocator().New();
 						newNode->index = (toLeft ? -lastIndex : lastIndex);
 						newNode->item = timestamped;
@@ -832,7 +855,7 @@ namespace cds { namespace container {
 						buffer_node* place = toLeft ? leftMost.load() : rightMost.load();
 						buffer_node* next = place->go(!toLeft);
 
-						while(isBorder(place, !toLeft) && next != place && place->taken.load()) {
+						while( next != place && place->taken.load()) {
 							place = next;
 							next = place->go(!toLeft);
 						}
@@ -853,13 +876,13 @@ namespace cds { namespace container {
 							tail->isDeletedFromLeft = toLeft;
 							garbage_node* garbage = makeGarbageNode(tail);
 							guestCounter--;
-							putToGarbage(garbage);
+							//putToGarbage(garbage);
 							stats->delayedFromInsert++;
 						} else {
 							guestCounter--;
 						}
 
-						logger->write(ss.str());
+//						std::cout << "insert-end" << std::endl;
 					}
 
 		 			void insertRight(node* timestamped, guard& defender) {
@@ -869,6 +892,32 @@ namespace cds { namespace container {
 		 			void insertLeft(node* timestamped, guard& defender) {
 						insert(timestamped, defender, true);
 		 			}
+
+					bool isSane(bool fromL) {
+						buffer_node* res = fromL ? leftMost.load() : rightMost.load();
+						buffer_node* lastOne = nullptr;
+						std::map<buffer_node*, bool> visited;
+						typename std::map<buffer_node*, bool>::iterator it;
+						visited.insert(std::pair<buffer_node*, bool>(res, true));
+						while(true) {
+							if(isBorder(res,!fromL)) {
+								guestCounter--;
+								return true;
+							}
+							if(res->go(!fromL) == res) {
+								guestCounter--;
+								return false;
+							}
+							res = res->go(!fromL);
+							it = visited.find(res);
+
+							if(it == visited.end()) {
+								visited.insert(std::pair<buffer_node*, bool>(res, true));
+							} else {
+								throw EndlessLoopException(visited.size());
+							}
+						}
+					}
 
 		 			bool get( guard& found ,guard& start, bool fromL) {
 
@@ -935,13 +984,14 @@ namespace cds { namespace container {
 						guestCounter++;
 						std::stringstream ss;
 						buffer_node* node = takenNode.get<buffer_node>();
-						buffer_node* temp = node->go(fromL);
 						buffer_node* startPoint = start.get<buffer_node>();
+						buffer_node* temp = startPoint->go(fromL);
+						buffer_node* oppositeBorder = fromL ? rightMost.load() : leftMost.load();
 						// to delete, oldRight, to unlink
 						bool t = false;
 						if(node->taken.compare_exchange_strong(t, true)) {
 							if( tryToSetBorder(node, startPoint, fromL)) {
-								if( temp != node && !inserting.load() && isBorder(node, fromL) && node->trySetNeighbour(node, temp, fromL)) {
+								if( temp != node && !inserting.load() && isBorder(node, fromL) && isBorder(oppositeBorder, !fromL) && startPoint->trySetNeighbour(startPoint, temp, fromL)) {
 									temp->isDeletedFromLeft = fromL;
 									stats->delayedFromDelete++;
 									garbage_node* garbage = makeGarbageNode(temp);
@@ -952,7 +1002,7 @@ namespace cds { namespace container {
 								}
 							}
 							guestCounter--;
-							tryToCleanGarbage();
+//							tryToCleanGarbage();
 
 							//logger->write(ss.str());
 							return true;
