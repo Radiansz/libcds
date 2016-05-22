@@ -75,10 +75,13 @@ void backReader(int size, int t) {
         try {
             deque->pop_back(t);
         } catch (cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >::EndlessLoopException& e) {
+            std::cout << "Endless:" << e.getMapSize() << std::endl;
+            deque -> printStats();
             ADD_FAILURE();
             break;
         }
     }
+    std::cout << "backReaderEnd" << std::endl;
     cds::threading::Manager::detachThread();
 }
 
@@ -89,6 +92,7 @@ void backWriter(int size, int t) {
         TestStruct test(i);
         deque->push_back(test);
     }
+    std::cout << "backWriterEnd" << std::endl;
     cds::threading::Manager::detachThread();
 }
 
@@ -100,10 +104,13 @@ void frontReader(int size, int t) {
         try {
             deque->pop_front(t);
         } catch (cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >::EndlessLoopException& e) {
+            std::cout << "Endless:" << e.getMapSize() << std::endl;
+            deque -> printStats();
             ADD_FAILURE();
             break;
         }
     }
+    std::cout << "frontReaderEnd" << std::endl;
     cds::threading::Manager::detachThread();
 }
 
@@ -114,6 +121,7 @@ void frontWriter(int size, int t) {
         TestStruct test(i);
         deque->push_front(test);
     }
+    std::cout << "backWriterEnd" << std::endl;
     cds::threading::Manager::detachThread();
 }
 
