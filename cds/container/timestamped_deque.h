@@ -907,8 +907,8 @@ namespace cds {
                     bool t = false;
                     if (node->taken.compare_exchange_strong(t, true)) {
                         if (tryToSetBorder(node, startPoint, fromL)) {
-                            if (temp != node && !inserting.load() && isBorder(node, fromL) && isBorder(opposite, !fromL) &&
-                                node->trySetNeighbour(node, temp, fromL)) {
+                            if (temp != startPoint && !inserting.load() && isBorder(node, fromL) && isBorder(opposite, !fromL) &&
+                                startPoint->trySetNeighbour(startPoint, temp, fromL)) {
                                 temp->isDeletedFromLeft = fromL;
                                 stats->delayedFromDelete++;
                                 garbage_node *garbage = makeGarbageNode(temp);
