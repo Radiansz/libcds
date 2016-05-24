@@ -318,7 +318,7 @@ namespace cds {
                     local->insertLeft(timestamped, defender);
                 else
                     local->insertRight(timestamped, defender);
-
+                std::cout << "counter" << itemCounter << std::endl;
                 unsigned long t = platform::getTimestamp();
                 timestamped->timestamp = t;
                 defender.clear();
@@ -349,11 +349,8 @@ namespace cds {
                     else
                         stats.successPopRight++;
                     stats.poppedAmount++;
-					if(itemCounter == 0) {
-                        std::cout << "Danger:" << temp->index << "\n";
-                        printStats();
-                    }
-                    std::cout << "Taken:" << temp->index << " " << itemCounter << "\n";
+
+
                     itemCounter--;
                     val = *temp->item->item;
                     return true;
@@ -727,6 +724,7 @@ namespace cds {
                     garbageArray = new std::atomic<garbage_node *>[garbageSize];
                     for (int i = 0; i < garbageSize; i++)
                         garbageArray[i].store(nullptr);
+                    occupied.store(false);
 
                 }
 
@@ -970,6 +968,7 @@ namespace cds {
                     while (cur->next.load() != nullptr) {
                         if (cur->buffer->tryOccupy()) {
                             node = cur;
+                            std::cout << "Old buffer";
                             break;
                         }
                         cur = cur->next.load();
@@ -983,6 +982,7 @@ namespace cds {
                         node = new List_node(newBuffer, true);
                         stats->amountOfBuffers++;
                         List_node *tail = findTail();
+                        newBuffer->tryOccupy();
                         std::cout << "New buffer" << std::endl;
                         while (!tryInsert(tail, node))
                             tail = findTail();
@@ -993,6 +993,7 @@ namespace cds {
             public:
                 Buffer_list(Statistic *stats) {
                     this->stats = stats;
+                    std::cout << "New buffer" << std::endl;
                     ThreadBuffer *newBuffer = new ThreadBuffer();
                     newBuffer->setStat(stats);
                     head.store(new List_node(newBuffer));
