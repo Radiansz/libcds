@@ -41,7 +41,7 @@ struct TestStruct {
 
 boost::barrier *startBarrier;
 cds::container::Timestamped_deque<TestStruct, traits_TSDeque_ic >* deque;
-class DequeTest_stress : public ::testing::Test
+class DequeTest_stress_consumer : public ::testing::Test
 {
     protected:
         void SetUp()
@@ -134,7 +134,7 @@ void printResult(boost::timer::cpu_timer &timer) {
     }
 }
 
-TEST_F(DequeTest_stress, As_a_stack) {
+TEST_F(DequeTest_stress_consumer, As_a_stack) {
     int writePart = writeAm, writeTail = 0;
     int readPart = readAm, readTail = 0;
     int sumThread = readThreads + writeThreads;
@@ -143,30 +143,43 @@ TEST_F(DequeTest_stress, As_a_stack) {
 
 
 
-    startBarrier = new boost::barrier(sumThread+1);
-    boost::thread **threads = new boost::thread*[sumThread];
+    startBarrier = new boost::barrier(writeThreads+1);
+    boost::thread **threads = new boost::thread*[writeThreads];
+//Write
+    for(int i = 0; i < writeThreads; i++) {
+        int curPart = (i+1 != writeThreads ? writePart : (writePart + writeTail));
+        threads[i] = new boost::thread(backWriter, curPart, i);
+    }
+    startBarrier->wait();
+
+    for(int i = 0; i < writeThreads; i++)
+        threads[i]->join();
+
 
 //Read
+    startBarrier = new boost::barrier(readThreads+1);
+    threads = new boost::thread*[readThreads];
     for(int i = 0; i < readThreads; i++) {
         int curPart = (i+1 != readThreads ? readPart : (readPart + readTail));
         threads[i] = new boost::thread(backReader, curPart, i);
     }
-//Write
-    for(int i = 0; i < writeThreads; i++) {
-        int curPart = (i+1 != writeThreads ? writePart : (writePart + writeTail));
-        threads[i+readThreads] = new boost::thread(backWriter, curPart, i+readThreads);
-    }
     boost::timer::cpu_timer timer;
     startBarrier->wait();
+
+    for(int i = 0; i < readThreads; i++)
+        threads[i]->join();
+
+
+
 //Waiting to end
-    for(int i = 0; i < sumThread; i++)
+    for(int i = 0; i < readThreads; i++)
         threads[i]->join();
     timer.stop();
     printResult(timer);
 
 }
 
-TEST_F(DequeTest_stress, As_a_queue) {
+TEST_F(DequeTest_stress_consumer, As_a_queue) {
     int writePart = writeAm, writeTail = 0;
     int readPart = readAm, readTail = 0;
     int sumThread = readThreads + writeThreads;
@@ -174,40 +187,62 @@ TEST_F(DequeTest_stress, As_a_queue) {
 //    separate(writeAm, writeThreads, writePart, writeTail);
 
 
-    startBarrier = new boost::barrier(sumThread+1);
-    boost::thread **threads = new boost::thread*[sumThread];
+    startBarrier = new boost::barrier(writeThreads+1);
+    boost::thread **threads = new boost::thread*[writeThreads];
+//Write
+    for(int i = 0; i < writeThreads; i++) {
+        int curPart = (i+1 != writeThreads ? writePart : (writePart + writeTail));
+        threads[i] = new boost::thread(backWriter, curPart, i);
+    }
+    startBarrier->wait();
+    for(int i = 0; i < writeThreads; i++)
+        threads[i]->join();
 
-    //Read
+
+//Read
+    startBarrier = new boost::barrier(readThreads+1);
+    threads = new boost::thread*[readThreads];
     for(int i = 0; i < readThreads; i++) {
         int curPart = (i+1 != readThreads ? readPart : (readPart + readTail));
         threads[i] = new boost::thread(frontReader, curPart, i);
     }
-    //Write
-    for(int i = 0; i < writeThreads; i++) {
-        int curPart = (i+1 != writeThreads ? writePart : (writePart + writeTail));
-        threads[i+readThreads] = new boost::thread(backWriter, curPart, i+readThreads);
-    }
     boost::timer::cpu_timer timer;
     startBarrier->wait();
+    for(int i = 0; i < readThreads; i++)
+        threads[i]->join();
+
+
     //Waiting to end
-    for(int i = 0; i < sumThread; i++)
+    for(int i = 0; i < readThreads; i++)
     threads[i]->join();
     timer.stop();
     printResult(timer);
 }
 
-TEST_F(DequeTest_stress, As_a_deque) {
+TEST_F(DequeTest_stress_consumer, As_a_deque) {
     int writePart = writeAm, writeTail = 0;
     int readPart = readAm, readTail = 0;
     int sumThread = readThreads + writeThreads;
 //    separate(readAm, readThreads, readPart, readTail);
 //    separate(writeAm, writeThreads, writePart, writeTail);
+    startBarrier = new boost::barrier(writeThreads+1);
+    boost::thread **threads = new boost::thread*[writeThreads];
+//Write
+    for(int i = 0; i < writeThreads; i++) {
+        int curPart = (i+1 != writeThreads ? writePart : (writePart + writeTail));
+        if(i % 2 == 0)
+            threads[i] = new boost::thread(backWriter, curPart, i);
+        else
+            threads[i] = new boost::thread(frontWriter, curPart, i);
+    }
+    startBarrier->wait();
+    for(int i = 0; i < writeThreads; i++)
+        threads[i]->join();
 
 
-    startBarrier = new boost::barrier(sumThread+1);
-    boost::thread **threads = new boost::thread*[sumThread];
-
-    //Read
+//Read
+    startBarrier = new boost::barrier(readThreads+1);
+    threads = new boost::thread*[readThreads];
     for(int i = 0; i < readThreads; i++) {
         int curPart = (i+1 != readThreads ? readPart : (readPart + readTail));
         if(i % 2 == 0)
@@ -215,18 +250,14 @@ TEST_F(DequeTest_stress, As_a_deque) {
         else
             threads[i] = new boost::thread(backReader, curPart, i);
     }
-    //Write
-    for(int i = 0; i < writeThreads; i++) {
-        int curPart = (i+1 != writeThreads ? writePart : (writePart + writeTail));
-        if(i % 2 == 0)
-            threads[i+readThreads] = new boost::thread(backWriter, curPart, i+readThreads);
-        else
-            threads[i+readThreads] = new boost::thread(frontWriter, curPart, i+readThreads);
-    }
     boost::timer::cpu_timer timer;
     startBarrier->wait();
+    for(int i = 0; i < readThreads; i++)
+        threads[i]->join();
+
+
     //Waiting to end
-    for(int i = 0; i < sumThread; i++)
+    for(int i = 0; i < readThreads; i++)
         threads[i]->join();
     timer.stop();
     printResult(timer);
