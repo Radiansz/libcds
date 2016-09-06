@@ -219,7 +219,7 @@ namespace cds {
                 wasEmpty[threadIND] = isFound;
 
                 if (!isFound && doEmptyCheck())
-                    return nullptr;
+                    return false;
 
                 if (isFound) {
                     bnode *borderNode = toRemove.get<bnode>();
