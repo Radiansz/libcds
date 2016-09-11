@@ -166,86 +166,87 @@ namespace {
         }
     };
 
-    CDSSTRESS_MSQueue( queue_pop )
-    CDSSTRESS_MoirQueue( queue_pop )
-    CDSSTRESS_BasketQueue( queue_pop )
-    CDSSTRESS_OptimsticQueue( queue_pop )
-    CDSSTRESS_FCQueue( queue_pop )
-    CDSSTRESS_FCDeque( queue_pop )
-    CDSSTRESS_RWQueue( queue_pop )
-    CDSSTRESS_StdQueue( queue_pop )
-
-#undef CDSSTRESS_Queue_F
-#define CDSSTRESS_Queue_F( test_fixture, type_name, level ) \
-    TEST_F( test_fixture, type_name ) \
-    { \
-        if ( !check_detail_level( level )) return; \
-        typedef queue::Types< value_type >::type_name queue_type; \
-        queue_type queue( s_nQueueSize ); \
-        test( queue ); \
-    }
-
-    CDSSTRESS_TsigasQueue( queue_pop )
-    CDSSTRESS_VyukovQueue( queue_pop )
-
-#undef CDSSTRESS_Queue_F
-
-
-    // ********************************************************************
-    // SegmentedQueue test
-
-    class segmented_queue_pop
-        : public queue_pop
-        , public ::testing::WithParamInterface< size_t >
-    {
-        typedef queue_pop base_class;
-
-    protected:
-        template <typename Queue>
-        void test()
-        {
-            size_t quasi_factor = GetParam();
-
-            Queue q( quasi_factor );
-            propout() << std::make_pair( "quasi_factor", quasi_factor );
-            base_class::test( q );
-        }
-
-    public:
-        static std::vector< size_t > get_test_parameters()
-        {
-            cds_test::config const& cfg = cds_test::stress_fixture::get_config( "queue_pop" );
-            bool bIterative = cfg.get_bool( "SegmentedQueue_Iterate", false );
-            size_t quasi_factor = cfg.get_size_t( "SegmentedQueue_SegmentSize", 256 );
-
-            std::vector<size_t> args;
-            if ( bIterative && quasi_factor > 4 ) {
-                for ( size_t qf = 4; qf <= quasi_factor; qf *= 2 )
-                    args.push_back( qf );
-            }
-            else {
-                if ( quasi_factor > 2 )
-                    args.push_back( quasi_factor );
-                else
-                    args.push_back( 2 );
-            }
-
-            return args;
-        }
-    };
-
-#define CDSSTRESS_Queue_F( test_fixture, type_name, level ) \
-    TEST_P( test_fixture, type_name ) \
-    { \
-        if ( !check_detail_level( level )) return; \
-        typedef typename queue::Types<value_type>::type_name queue_type; \
-        test< queue_type >(); \
-    }
-
-    CDSSTRESS_SegmentedQueue( segmented_queue_pop )
-
-    INSTANTIATE_TEST_CASE_P( SQ,
-        segmented_queue_pop,
-        ::testing::ValuesIn( segmented_queue_pop::get_test_parameters()));
+//    CDSSTRESS_MSQueue( queue_pop )
+//    CDSSTRESS_MoirQueue( queue_pop )
+//    CDSSTRESS_BasketQueue( queue_pop )
+//    CDSSTRESS_OptimsticQueue( queue_pop )
+//    CDSSTRESS_FCQueue( queue_pop )
+//    CDSSTRESS_FCDeque( queue_pop )
+    CDSSTRESS_TSQueue( queue_pop )
+//    CDSSTRESS_RWQueue( queue_pop )
+//    CDSSTRESS_StdQueue( queue_pop )
+//
+//#undef CDSSTRESS_Queue_F
+//#define CDSSTRESS_Queue_F( test_fixture, type_name, level ) \
+//    TEST_F( test_fixture, type_name ) \
+//    { \
+//        if ( !check_detail_level( level )) return; \
+//        typedef queue::Types< value_type >::type_name queue_type; \
+//        queue_type queue( s_nQueueSize ); \
+//        test( queue ); \
+//    }
+//
+////    CDSSTRESS_TsigasQueue( queue_pop )
+////    CDSSTRESS_VyukovQueue( queue_pop )
+//
+//#undef CDSSTRESS_Queue_F
+//
+//
+//    // ********************************************************************
+//    // SegmentedQueue test
+//
+//    class segmented_queue_pop
+//        : public queue_pop
+//        , public ::testing::WithParamInterface< size_t >
+//    {
+//        typedef queue_pop base_class;
+//
+//    protected:
+//        template <typename Queue>
+//        void test()
+//        {
+//            size_t quasi_factor = GetParam();
+//
+//            Queue q( quasi_factor );
+//            propout() << std::make_pair( "quasi_factor", quasi_factor );
+//            base_class::test( q );
+//        }
+//
+//    public:
+//        static std::vector< size_t > get_test_parameters()
+//        {
+//            cds_test::config const& cfg = cds_test::stress_fixture::get_config( "queue_pop" );
+//            bool bIterative = cfg.get_bool( "SegmentedQueue_Iterate", false );
+//            size_t quasi_factor = cfg.get_size_t( "SegmentedQueue_SegmentSize", 256 );
+//
+//            std::vector<size_t> args;
+//            if ( bIterative && quasi_factor > 4 ) {
+//                for ( size_t qf = 4; qf <= quasi_factor; qf *= 2 )
+//                    args.push_back( qf );
+//            }
+//            else {
+//                if ( quasi_factor > 2 )
+//                    args.push_back( quasi_factor );
+//                else
+//                    args.push_back( 2 );
+//            }
+//
+//            return args;
+//        }
+//    };
+//
+//#define CDSSTRESS_Queue_F( test_fixture, type_name, level ) \
+//    TEST_P( test_fixture, type_name ) \
+//    { \
+//        if ( !check_detail_level( level )) return; \
+//        typedef typename queue::Types<value_type>::type_name queue_type; \
+//        test< queue_type >(); \
+//    }
+//
+////    CDSSTRESS_SegmentedQueue( segmented_queue_pop )
+//
+//    INSTANTIATE_TEST_CASE_P( SQ,
+//        segmented_queue_pop,
+//        ::testing::ValuesIn( segmented_queue_pop::get_test_parameters()));
 
 } // namespace

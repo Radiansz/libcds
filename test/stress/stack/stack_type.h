@@ -34,6 +34,7 @@
 #include <cds/container/treiber_stack.h>
 #include <cds/container/fcstack.h>
 #include <cds/container/fcdeque.h>
+#include <cds/container/timestamped_deque.h>
 
 #include <cds/gc/hp.h>
 #include <cds/gc/dhp.h>
@@ -46,6 +47,7 @@
 
 #include <cds_test/stress_test.h>
 #include <cds_test/stat_flat_combining_out.h>
+#include <cds_test/stat_timestampdeque_out.h>
 
 namespace stack {
 
@@ -82,15 +84,38 @@ namespace stack {
         {
             typedef cds::container::FCDeque<T, std::deque<T>, Traits > base_class;
         public:
-            FCDequeR()
-            {}
+            bool push( T const& v )
+            {
+                return base_class::push_back( v );
+            }
 
-            FCDequeR(
-                unsigned int nCompactFactor     ///< Flat combining: publication list compacting factor
-                ,unsigned int nCombinePassCount ///< Flat combining: number of combining passes for combiner thread
-                )
-                : base_class( nCompactFactor, nCombinePassCount )
-            {}
+            bool pop( T& v )
+            {
+                return base_class::pop_back( v );
+            }
+        };
+
+        template <typename T, typename Traits=cds::container::timestamped_deque::traits>
+        class TSDequeL: public cds::container::Timestamped_deque<T, Traits >
+        {
+            typedef cds::container::Timestamped_deque<T, Traits > base_class;
+        public:
+            bool push( T const& v )
+            {
+                return base_class::push_front( v );
+            }
+
+            bool pop( T& v )
+            {
+                return base_class::pop_front( v );
+            }
+        };
+
+        template <typename T, typename Traits=cds::container::timestamped_deque::traits>
+        class TSDequeR: public cds::container::Timestamped_deque<T, Traits >
+        {
+            typedef cds::container::Timestamped_deque<T, Traits > base_class;
+        public:
 
             bool push( T const& v )
             {
@@ -374,6 +399,15 @@ namespace stack {
         typedef cds::container::FCStack< T, std::stack<T, std::list<T> >, traits_FCStack_stat > FCStack_list_stat;
         typedef cds::container::FCStack< T, std::stack<T, std::list<T> >, traits_FCStack_elimination > FCStack_list_elimination;
         typedef cds::container::FCStack< T, std::stack<T, std::list<T> >, traits_FCStack_elimination_stat > FCStack_list_elimination_stat;
+   // TSDeque
+
+        struct traits_TSDeque_ic : public cds::container::timestamped_deque::traits
+        {
+            typedef cds::atomicity::item_counter item_counter;
+        };
+
+        typedef details::TSDequeL< T, traits_TSDeque_ic > TSDequeL_default;
+        typedef details::TSDequeR< T, traits_TSDeque_ic > TSDequeR_default;
 
    // FCDeque
         struct traits_FCDeque_stat:
@@ -550,6 +584,10 @@ namespace cds_test {
     CDSSTRESS_Stack_F( test_fixture, FCStack_list_stat ) \
     CDSSTRESS_Stack_F( test_fixture, FCStack_list_elimination ) \
     CDSSTRESS_Stack_F( test_fixture, FCStack_list_elimination_stat )
+
+#define CDSSTRESS_TSDeque( test_fixture ) \
+    CDSSTRESS_Stack_F( test_fixture, TSDequeL_default ) \
+    CDSSTRESS_Stack_F( test_fixture, TSDequeR_default )
 
 #define CDSSTRESS_FCDeque( test_fixture ) \
     CDSSTRESS_Stack_F( test_fixture, FCDequeL_default ) \

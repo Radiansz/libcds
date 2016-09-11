@@ -41,6 +41,7 @@
 #include <cds/container/fcqueue.h>
 #include <cds/container/fcdeque.h>
 #include <cds/container/segmented_queue.h>
+#include <cds/container/timestamped_deque.h>
 
 #include <cds/gc/hp.h>
 #include <cds/gc/dhp.h>
@@ -53,6 +54,8 @@
 
 #include <cds_test/stress_test.h>
 #include <cds_test/stat_flat_combining_out.h>
+#include <cds_test/stat_timestampdeque_out.h>
+
 #include "print_stat.h"
 
 namespace queue {
@@ -92,6 +95,31 @@ namespace queue {
             }
         };
 
+        template <typename T, typename Traits=cds::container::timestamped_deque::traits>
+        class TSDequeL: public cds::container::Timestamped_deque<T, Traits >
+        {
+            typedef cds::container::Timestamped_deque<T, Traits > base_class;
+        public:
+
+            bool push( T const& v )
+            {
+                return base_class::push_front( v );
+            }
+            bool enqueue( T const& v )
+            {
+                return push( v );
+            }
+
+            bool pop( T& v )
+            {
+                return base_class::pop_back( v );
+            }
+            bool deque( T& v )
+            {
+                return pop(v);
+            }
+        };
+
         template <typename T, typename Traits=cds::container::fcdeque::traits, class Deque = std::deque<T> >
         class FCDequeR: public cds::container::FCDeque<T, Deque, Traits >
         {
@@ -106,6 +134,31 @@ namespace queue {
                 )
                 : base_class( nCompactFactor, nCombinePassCount )
             {}
+
+            bool push( T const& v )
+            {
+                return base_class::push_back( v );
+            }
+            bool enqueue( T const& v )
+            {
+                return push( v );
+            }
+
+            bool pop( T& v )
+            {
+                return base_class::pop_front( v );
+            }
+            bool deque( T& v )
+            {
+                return pop(v);
+            }
+        };
+
+        template <typename T, typename Traits=cds::container::timestamped_deque::traits>
+        class TSDequeR: public cds::container::Timestamped_deque<T, Traits >
+        {
+            typedef cds::container::Timestamped_deque<T, Traits > base_class;
+        public:
 
             bool push( T const& v )
             {
@@ -535,6 +588,14 @@ namespace queue {
             typedef cds::container::fcdeque::stat<> stat;
         };
 
+        struct traits_TSDeque_ic : public cds::container::timestamped_deque::traits
+        {
+            typedef cds::atomicity::item_counter item_counter;
+        };
+
+        typedef details::TSDequeL< Value, traits_TSDeque_ic > TSDequeL_default;
+        typedef details::TSDequeL< Value, traits_TSDeque_ic > TSDequeR_default;
+
         typedef details::FCDequeL< Value > FCDequeL_default;
         typedef details::FCDequeL< Value, traits_FCDeque_mutex > FCDequeL_mutex;
         typedef details::FCDequeL< Value, traits_FCDeque_stat > FCDequeL_stat;
@@ -545,6 +606,7 @@ namespace queue {
         typedef details::FCDequeL< Value, traits_FCDeque_wait_mm > FCDequeL_wait_mm;
         typedef details::FCDequeL< Value, traits_FCDeque_wait_mm_stat > FCDequeL_wait_mm_stat;
         typedef details::FCDequeL< Value, traits_FCDeque_elimination > FCDequeL_elimination;
+
         typedef details::FCDequeL< Value, traits_FCDeque_elimination_stat > FCDequeL_elimination_stat;
 
         typedef details::FCDequeL< Value, cds::container::fcdeque::traits, boost::container::deque<Value> > FCDequeL_boost;
@@ -728,26 +790,30 @@ namespace cds_test {
     CDSSTRESS_Queue_F( test_fixture, BasketQueue_DHP_stat,          0 )
 
 #define CDSSTRESS_FCQueue( test_fixture ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque,                 0 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_stat,            0 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_wait_ss,         1 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_wait_ss_stat,    0 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_wait_sm,         1 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_wait_sm_stat,    0 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_wait_mm,         1 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_wait_mm_stat,    0 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_elimination,     1 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_elimination_stat,0 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_list,                  0 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_stat,             0 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_wait_ss,          1 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_wait_ss_stat,     0 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_wait_sm,          1 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_wait_sm_stat,     0 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_wait_mm,          1 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_wait_mm_stat,     0 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_elimination,      1 ) \
-    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_elimination_stat, 0 )
+    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque,                 0 )
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_stat,            0 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_wait_ss,         1 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_wait_ss_stat,    0 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_wait_sm,         1 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_wait_sm_stat,    0 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_wait_mm,         1 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_wait_mm_stat,    0 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_elimination,     1 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_deque_elimination_stat,0 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_list,                  0 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_stat,             0 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_wait_ss,          1 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_wait_ss_stat,     0 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_wait_sm,          1 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_wait_sm_stat,     0 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_wait_mm,          1 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_wait_mm_stat,     0 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_elimination,      1 ) \
+//    CDSSTRESS_Queue_F( test_fixture, FCQueue_list_elimination_stat, 0 )
+
+#define CDSSTRESS_TSQueue( test_fixture ) \
+    CDSSTRESS_Queue_F( test_fixture, TSDequeL_default,                 0 ) \
+    CDSSTRESS_Queue_F( test_fixture, TSDequeR_default,                 0 )
 
 #define CDSSTRESS_FCDeque( test_fixture ) \
     CDSSTRESS_Queue_F( test_fixture, FCDequeL_default,              0 ) \

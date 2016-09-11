@@ -277,10 +277,11 @@ namespace {
         }
     };
 
-    CDSSTRESS_TreiberStack( stack_push_pop )
-    CDSSTRESS_EliminationStack( stack_push_pop )
-    CDSSTRESS_FCStack( stack_push_pop )
-    CDSSTRESS_FCDeque( stack_push_pop )
-    CDSSTRESS_StdStack( stack_push_pop )
+//    CDSSTRESS_TreiberStack( stack_push_pop )
+//    CDSSTRESS_EliminationStack( stack_push_pop )
+//    CDSSTRESS_FCStack( stack_push_pop )
+//    CDSSTRESS_FCDeque( stack_push_pop )
+    CDSSTRESS_TSDeque( stack_push_pop )
+//    CDSSTRESS_StdStack( stack_push_pop )
 
 } // namespace

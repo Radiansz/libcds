@@ -2,8 +2,8 @@ set(PACKAGE_NAME stress-stack)
 
 set(CDSSTRESS_STACK_SOURCES
     ../main.cpp
-    intrusive_push_pop.cpp
-    intrusive_push_pop_fcstack.cpp
+#    intrusive_push_pop.cpp
+#    intrusive_push_pop_fcstack.cpp
     push.cpp
     push_pop.cpp
 )
