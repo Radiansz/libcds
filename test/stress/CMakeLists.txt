@@ -15,25 +15,25 @@ add_custom_command(
 )
 set_property(SOURCE framework/stress_test.cpp APPEND PROPERTY OBJECT_DEPENDS ${EXECUTABLE_OUTPUT_PATH}/dictionary.txt)
 
-add_library(${CDSSTRESS_FRAMEWORK_LIBRARY} OBJECT ${CDSSTRESS_FRAMEWORK_SOURCES}) 
+add_library(${CDSSTRESS_FRAMEWORK_LIBRARY} OBJECT ${CDSSTRESS_FRAMEWORK_SOURCES})
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/map)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/pqueue)
+# add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/map)
+# add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/pqueue)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/queue)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/set)
+# add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/set)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/stack)
 
 add_custom_target( stress-all
     DEPENDS
-        stress-map
-        stress-pqueue
+        # stress-map
+        # stress-pqueue
         stress-queue
         stress-stack
-        stress-set
+        # stress-set
 )
 
 file(GLOB CONF_FILES ${PROJECT_SOURCE_DIR}/test/stress/data/*.conf)

@@ -2,8 +2,8 @@ set(PACKAGE_NAME stress-stack)
 
 set(CDSSTRESS_STACK_SOURCES
     ../main.cpp
-    intrusive_push_pop.cpp
-    intrusive_push_pop_fcstack.cpp
+    # intrusive_push_pop.cpp
+    # intrusive_push_pop_fcstack.cpp
     push.cpp
     push_pop.cpp
 )
@@ -13,7 +13,7 @@ include_directories(
 )
 
 add_executable(${PACKAGE_NAME} ${CDSSTRESS_STACK_SOURCES} $<TARGET_OBJECTS:${CDSSTRESS_FRAMEWORK_LIBRARY}>)
-target_link_libraries(${PACKAGE_NAME} 
+target_link_libraries(${PACKAGE_NAME}
     ${CDS_SHARED_LIBRARY}
     ${GTEST_LIBRARY}
     ${Boost_THREAD_LIBRARY}
