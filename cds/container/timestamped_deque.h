@@ -45,24 +45,7 @@ namespace cds {
                         typename cds::opt::find_type_traits<traits, Options...>::type, Options...
                 >::type type;
             };
-        } // namespace timestamped_deque
-        using namespace cds::timestamp;
 
-        template<typename T, typename Traits = cds::container::timestamped_deque::traits>
-        class Timestamped_deque {
-            class ThreadBuffer;
-            class Buffer_list;
-            struct buffer_node;
-
-            struct node {
-                unsigned long timestamp;
-                T *item;
-
-                node() : timestamp(0) { }
-            };
-
-
-        public:
             struct Statistic {
                 std::atomic<int> failedPopLeft;
                 std::atomic<int> failedPopRight;
@@ -102,7 +85,27 @@ namespace cds {
                     wrongDelayed.store(0);
                     putConflict.store(0);
                 }
+
+                // temporary to avoid copying of atomics
+                Statistic ( const Statistic& ) : Statistic() {}
             };
+        } // namespace timestamped_deque
+        using namespace cds::timestamp;
+
+        template<typename T, typename Traits = cds::container::timestamped_deque::traits>
+        class Timestamped_deque {
+            class ThreadBuffer;
+            class Buffer_list;
+            struct buffer_node;
+
+            struct node {
+                unsigned long timestamp;
+                T *item;
+
+                node() : timestamp(0) { }
+            };
+
+
 
 
         public:
@@ -126,7 +129,7 @@ namespace cds {
                 b->deoccupy();
             }
 
-            Statistic stats;
+            timestamped_deque::Statistic stats;
 
             Buffer_list bufferList;
             std::atomic<int> lastFree;
@@ -432,6 +435,10 @@ namespace cds {
                 while (pop_back(v)) { }
             }
 
+            timestamped_deque::Statistic statistics() {
+                return stats;
+            }
+
             size_t size() const {
                 return itemCounter.value();
             }
@@ -441,7 +448,7 @@ namespace cds {
                 return 14;
             }
 
-            Statistic *getStats() {
+            timestamped_deque::Statistic *getStats() {
                 return &stats;
             }
 
@@ -690,7 +697,7 @@ namespace cds {
                 long lastIndex;
                 std::atomic<int> guestCounter;
                 std::atomic<bool> inserting;
-                Statistic *stats;
+                timestamped_deque::Statistic *stats;
                 Logger *logger;
                 std::atomic<bool> occupied;
             public:
@@ -750,7 +757,7 @@ namespace cds {
                     return rightMost.load();
                 }
 
-                void setStat(Statistic *stats) {
+                void setStat(timestamped_deque::Statistic *stats) {
                     this->stats = stats;
                 }
 
@@ -945,7 +952,7 @@ namespace cds {
 
 
                 std::atomic<List_node *> head;
-                Statistic *stats;
+                timestamped_deque::Statistic *stats;
                 Logger *logger;
 
 
@@ -991,7 +998,7 @@ namespace cds {
                 }
 
             public:
-                Buffer_list(Statistic *stats) {
+                Buffer_list(timestamped_deque::Statistic *stats) {
                     this->stats = stats;
                     std::cout << "New buffer" << std::endl;
                     ThreadBuffer *newBuffer = new ThreadBuffer();
@@ -1017,7 +1024,7 @@ namespace cds {
                     return head.load();
                 }
 
-                void setStats(Statistic *stats) {
+                void setStats(timestamped_deque::Statistic *stats) {
                     this->stats = stats;
                 }
 

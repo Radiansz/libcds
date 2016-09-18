@@ -5,7 +5,7 @@
 
     Source code repo: http://github.com/khizmax/libcds/
     Download: http://sourceforge.net/projects/libcds/files/
-    
+
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions are met:
 
@@ -43,12 +43,12 @@ namespace {
         {
             size_t      nNo;
 
-            value_type() 
-                : nNo( 0 ) 
+            value_type()
+                : nNo( 0 )
             {}
 
-            value_type( size_t n ) 
-                : nNo( n ) 
+            value_type( size_t n )
+                : nNo( n )
             {}
         };
 
@@ -175,6 +175,7 @@ namespace {
     CDSSTRESS_OptimsticQueue( queue_push )
     CDSSTRESS_FCQueue( queue_push )
     CDSSTRESS_FCDeque( queue_push )
+    CDSSTRESS_TSDeque( queue_push )
     CDSSTRESS_RWQueue( queue_push )
     CDSSTRESS_StdQueue( queue_push )
 

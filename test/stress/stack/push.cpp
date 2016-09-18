@@ -44,13 +44,13 @@ namespace {
             size_t      nNo;
             size_t      nThread;
 
-            value_type() 
+            value_type()
                 : nNo( 0 )
-                , nThread( 0 ) 
+                , nThread( 0 )
             {}
-            value_type( size_t n ) 
+            value_type( size_t n )
                 : nNo( n )
-                , nThread( 0 ) 
+                , nThread( 0 )
             {}
         };
 
@@ -203,6 +203,7 @@ namespace {
     CDSSTRESS_EliminationStack( stack_push )
     CDSSTRESS_FCStack( stack_push )
     CDSSTRESS_FCDeque( stack_push )
+    CDSSTRESS_TSDeque( stack_push )
     CDSSTRESS_StdStack( stack_push )
 
 } // namespace

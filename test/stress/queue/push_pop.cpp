@@ -5,7 +5,7 @@
 
     Source code repo: http://github.com/khizmax/libcds/
     Download: http://sourceforge.net/projects/libcds/files/
-    
+
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions are met:
 
@@ -324,6 +324,7 @@ namespace {
     CDSSTRESS_OptimsticQueue( queue_push_pop )
     CDSSTRESS_FCQueue( queue_push_pop )
     CDSSTRESS_FCDeque( queue_push_pop )
+    CDSSTRESS_TSDeque( queue_push_pop )
     CDSSTRESS_RWQueue( queue_push_pop )
     CDSSTRESS_StdQueue( queue_push_pop )
 

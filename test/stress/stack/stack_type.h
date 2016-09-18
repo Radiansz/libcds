@@ -5,7 +5,7 @@
 
     Source code repo: http://github.com/khizmax/libcds/
     Download: http://sourceforge.net/projects/libcds/files/
-    
+
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions are met:
 
@@ -25,7 +25,7 @@
     SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
     CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
     OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.     
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #ifndef CDSSTRESS_STACK_TYPES_H
@@ -34,6 +34,7 @@
 #include <cds/container/treiber_stack.h>
 #include <cds/container/fcstack.h>
 #include <cds/container/fcdeque.h>
+#include <cds/container/timestamped_deque.h>
 
 #include <cds/gc/hp.h>
 #include <cds/gc/dhp.h>
@@ -46,6 +47,7 @@
 
 #include <cds_test/stress_test.h>
 #include <cds_test/stat_flat_combining_out.h>
+#include <cds_test/stat_timestampdeque_out.h>
 
 namespace stack {
 
@@ -91,6 +93,39 @@ namespace stack {
                 )
                 : base_class( nCompactFactor, nCombinePassCount )
             {}
+
+            bool push( T const& v )
+            {
+                return base_class::push_back( v );
+            }
+
+            bool pop( T& v )
+            {
+                return base_class::pop_back( v );
+            }
+        };
+
+        template <typename T, typename Traits=cds::container::timestamped_deque::traits>
+        class TSDequeL: public cds::container::Timestamped_deque<T, Traits >
+        {
+            typedef cds::container::Timestamped_deque<T, Traits > base_class;
+        public:
+            bool push( T const& v )
+            {
+                return base_class::push_front( v );
+            }
+
+            bool pop( T& v )
+            {
+                return base_class::pop_front( v );
+            }
+        };
+
+        template <typename T, typename Traits=cds::container::timestamped_deque::traits>
+        class TSDequeR: public cds::container::Timestamped_deque<T, Traits >
+        {
+            typedef cds::container::Timestamped_deque<T, Traits > base_class;
+        public:
 
             bool push( T const& v )
             {
@@ -411,6 +446,15 @@ namespace stack {
         typedef details::FCDequeR< T, traits_FCDeque_elimination > FCDequeR_elimination;
         typedef details::FCDequeR< T, traits_FCDeque_elimination_stat > FCDequeR_elimination_stat;
 
+   // TSDeque
+
+        struct traits_TSDeque_ic : public cds::container::timestamped_deque::traits
+        {
+            typedef cds::atomicity::item_counter item_counter;
+        };
+
+        typedef details::TSDequeL< T, traits_TSDeque_ic > TSDequeL_default;
+        typedef details::TSDequeR< T, traits_TSDeque_ic > TSDequeR_default;
 
         // std::stack
         typedef details::StdStack< T, std::stack< T >, std::mutex >  StdStack_Deque_Mutex;
@@ -562,6 +606,10 @@ namespace cds_test {
     CDSSTRESS_Stack_F( test_fixture, FCDequeR_stat ) \
     CDSSTRESS_Stack_F( test_fixture, FCDequeR_elimination ) \
     CDSSTRESS_Stack_F( test_fixture, FCDequeR_elimination_stat )
+
+#define CDSSTRESS_TSDeque( test_fixture ) \
+    CDSSTRESS_Stack_F( test_fixture, TSDequeL_default ) \
+    CDSSTRESS_Stack_F( test_fixture, TSDequeR_default )
 
 #define CDSSTRESS_StdStack( test_fixture ) \
     CDSSTRESS_Stack_F( test_fixture, StdStack_Deque_Mutex  ) \

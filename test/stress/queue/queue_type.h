@@ -5,7 +5,7 @@
 
     Source code repo: http://github.com/khizmax/libcds/
     Download: http://sourceforge.net/projects/libcds/files/
-    
+
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions are met:
 
@@ -41,6 +41,7 @@
 #include <cds/container/fcqueue.h>
 #include <cds/container/fcdeque.h>
 #include <cds/container/segmented_queue.h>
+#include <cds/container/timestamped_deque.h>
 
 #include <cds/gc/hp.h>
 #include <cds/gc/dhp.h>
@@ -53,6 +54,8 @@
 
 #include <cds_test/stress_test.h>
 #include <cds_test/stat_flat_combining_out.h>
+#include <cds_test/stat_timestampdeque_out.h>
+
 #include "print_stat.h"
 
 namespace queue {
@@ -111,6 +114,58 @@ namespace queue {
             {
                 return base_class::push_back( v );
             }
+            bool enqueue( T const& v )
+            {
+                return push( v );
+            }
+
+            bool pop( T& v )
+            {
+                return base_class::pop_front( v );
+            }
+            bool deque( T& v )
+            {
+                return pop(v);
+            }
+        };
+
+        template <typename T, typename Traits=cds::container::timestamped_deque::traits>
+        class TSDequeL: public cds::container::Timestamped_deque<T, Traits >
+        {
+            typedef cds::container::Timestamped_deque<T, Traits > base_class;
+        public:
+
+            bool push( T const& v )
+            {
+                return base_class::push_front( v );
+            }
+
+            bool enqueue( T const& v )
+            {
+                return push( v );
+            }
+
+            bool pop( T& v )
+            {
+                return base_class::pop_back( v );
+            }
+            bool deque( T& v )
+            {
+                return pop(v);
+            }
+        };
+
+        template <typename T, typename Traits=cds::container::timestamped_deque::traits>
+        class TSDequeR: public cds::container::Timestamped_deque<T, Traits >
+        {
+            typedef cds::container::Timestamped_deque<T, Traits > base_class;
+        public:
+
+            bool push( T const& v )
+            {
+                return base_class::push_back( v );
+            }
+
             bool enqueue( T const& v )
             {
                 return push( v );
@@ -569,6 +624,14 @@ namespace queue {
         typedef details::FCDequeR< Value, traits_FCDeque_elimination, boost::container::deque<Value> > FCDequeR_boost_elimination;
         typedef details::FCDequeR< Value, traits_FCDeque_elimination_stat, boost::container::deque<Value> > FCDequeR_boost_elimination_stat;
 
+        struct traits_TSDeque_ic : public cds::container::timestamped_deque::traits
+        {
+            typedef cds::atomicity::item_counter item_counter;
+        };
+
+        typedef details::TSDequeL< Value, traits_TSDeque_ic > TSDequeL_default;
+        typedef details::TSDequeL< Value, traits_TSDeque_ic > TSDequeR_default;
+
         // STL
         typedef StdQueue_deque<Value>               StdQueue_deque_Spinlock;
         typedef StdQueue_list<Value>                StdQueue_list_Spinlock;
@@ -780,6 +843,10 @@ namespace cds_test {
     CDSSTRESS_Queue_F( test_fixture, FCDequeR_boost_stat,           0 ) \
     CDSSTRESS_Queue_F( test_fixture, FCDequeR_boost_elimination,    1 ) \
     CDSSTRESS_Queue_F( test_fixture, FCDequeR_boost_elimination_stat, 1 )
+
+#define CDSSTRESS_TSDeque( test_fixture ) \
+    CDSSTRESS_Queue_F( test_fixture, TSDequeL_default,                 0 ) \
+    CDSSTRESS_Queue_F( test_fixture, TSDequeR_default,                 0 )
 
 #define CDSSTRESS_RWQueue( test_fixture ) \
     CDSSTRESS_Queue_F( test_fixture, RWQueue_Spin,      0 ) \
