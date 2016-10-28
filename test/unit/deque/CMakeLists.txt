@@ -2,7 +2,7 @@ set(PACKAGE_NAME unit-deque)
 
 set(CDSGTEST_DEQUE_SOURCES
     ../main.cpp
-    fcdeque.cpp
+    # fcdeque.cpp
     tsdeque.cpp
 )
 
@@ -11,7 +11,7 @@ include_directories(
 )
 
 add_executable(${PACKAGE_NAME} ${CDSGTEST_DEQUE_SOURCES})
-target_link_libraries(${PACKAGE_NAME} 
+target_link_libraries(${PACKAGE_NAME}
     ${CDS_SHARED_LIBRARY}
     ${GTEST_LIBRARY}
     ${Boost_THREAD_LIBRARY}

@@ -163,8 +163,31 @@ namespace cds {
             }
 
             bool doEmptyCheck() {
+                ThreadBuffer *curBuffer;
+                ThreadBuffer *local = localBuffer.get();
+                guard candidate, startPointSec;
+                int i = 0;
+                bool isFound = false, empty = true;
+                bool doItAgain = !local->wasFullRound;
+                typename Buffer_list::List_node *curNode = bufferList.getHead();
 
-                return itemCounter == 0;
+
+                do {
+                    curBuffer = curNode->buffer;
+                    empty = checkBorders(local, curBuffer, i) && empty;
+
+                    if (curBuffer->get(candidate, startPointSec, false)) {
+                        isFound = true;
+                    }
+                    curNode = curNode->next.load();
+                    i++;
+                } while (curNode != nullptr);
+
+                std::cout << "!!!! Emitness" << " " << empty << " " << isFound << " " << local->wasFullRound << " " << local->wasEmpty;
+                empty = empty && !isFound && local->wasFullRound && local->wasEmpty;
+                local->wasEmpty = !isFound;
+                local->wasFullRound = curNode == nullptr;
+                return empty;
             }
             /*
              *  Helping function for checking emptiness
@@ -181,47 +204,105 @@ namespace cds {
                 return found;
             }
 
-            bool tryRemove(guard &toRemove, bool fromL, bool &success) {
-                guard candidate, startCandidate, startPoint;
+            // bool checkBorders1(ThreadBuffer* local, ThreadBuffer* curBuffer, int index) {
+            //     // std::cout << "TICK " << local <<  std::endl;
+            //     std::vector<bnode *> &leftBorders = *(local->leftBorders);
+            //     std::vector<bnode *> &rightBorders =*( local->rightBorders);
+            //     bnode *leftBorder = curBuffer->getLeftMost();
+            //     bnode *rightBorder = curBuffer->getRightMost();
+            //     bool isEqual = false;
+            //     std::cout << "sizes " << leftBorders.size() << " " << rightBorders.size() << std::endl;
+            //     if (leftBorders.size() <= index || rightBorders.size() <= index) {
+            //         leftBorders.push_back(leftBorder);
+            //         rightBorders.push_back(rightBorder);
+
+            //         return false;
+            //     }
+            //     std::cout << "Compare left " << leftBorders[index] << " " << leftBorder << std::endl;
+            //     std::cout << "Compare right " << rightBorders[index] << " " << rightBorder << std::endl;
+            //     isEqual = leftBorders[index] == leftBorder && rightBorders[index] == rightBorder;
+
+            //     leftBorders[index] = leftBorder;
+            //     rightBorders[index] = rightBorder;
+
+            //     return isEqual;
+            // }
+
+            bool checkBorders(ThreadBuffer* local, ThreadBuffer* curBuffer, int index) {
+                // std::cout << "TICK " << local <<  std::endl;
+                std::vector<bnode *> &leftBorders = *(local->leftBorders);
+                std::vector<bnode *> &rightBorders =*( local->rightBorders);
+                bnode *leftBorder = curBuffer->getLeftMost();
+                bnode *rightBorder = curBuffer->getRightMost();
+                bool isEqual = false;
+                // std::cout << "sizes " << leftBorders.size() << " " << rightBorders.size() << std::endl;
+                if (leftBorders.size() <= index || rightBorders.size() <= index) {
+                    leftBorders.push_back(leftBorder);
+                    rightBorders.push_back(rightBorder);
+
+                    return false;
+                }
+                // std::cout << "Compare left " << leftBorders[index] << " " << leftBorder << std::endl;
+                // std::cout << "Compare right " << rightBorders[index] << " " << rightBorder << std::endl;
+                isEqual = leftBorders[index] == leftBorder && rightBorders[index] == rightBorder;
+
+                leftBorders[index] = leftBorder;
+                rightBorders[index] = rightBorder;
+
+                return isEqual;
+            }
+
+            bool findCandidate(guard &toRemove, guard &startPoint, ThreadBuffer *&neededBuffer, bool fromL, bool& empty) {
+                // std::cout << "Find start " <<  std::endl;
+                int i = 0;
+                guard candidate, startPointSec;
+                bool isFound = false;
+                ThreadBuffer *local = localBuffer.get();
                 candidate.clear();
-                startCandidate.clear();
+                startPointSec.clear();
                 startPoint.clear();
                 toRemove.clear();
-                bool empty = true, isFound = false;
-                success = true;
-                int threadIND = acquireIndex();
-                unsigned long startTime = platform::getTimestamp();
                 typename Buffer_list::List_node *curNode = bufferList.getHead();
-                ThreadBuffer *curBuffer,
-                        *neededBuffer;
+                ThreadBuffer *curBuffer;
+
                 do {
                     curBuffer = curNode->buffer;
+                    empty = checkBorders(local, curBuffer, i) && empty;
+                    // std::cout << "!!!Index: " << i << std::endl;
 
-                    if (curBuffer->get(candidate, startCandidate, fromL)) {
-                        if(!isFound) {
+                    if (curBuffer->get(candidate, startPointSec, fromL)) {
+
+                        if (!isFound || isMore(candidate.get<bnode>(), toRemove.get<bnode>(), fromL)) {
                             neededBuffer = curBuffer;
                             isFound = true;
                             toRemove.copy(candidate);
-                            startPoint.copy(startCandidate);
+                            startPoint.copy(startPointSec);
                             if (candidate.get<bnode>()->item->timestamp == 0)
                                 break;
                         }
-                        if (isMore(candidate.get<bnode>(), toRemove.get<bnode>(), fromL)) {
-                            neededBuffer = curBuffer;
-                            isFound = true;
-                            toRemove.copy(candidate);
-                            startPoint.copy(startCandidate);
-                            if (candidate.get<bnode>()->item->timestamp == 0)
-                                break;
-                        }
-
                     }
                     curNode = curNode->next.load();
+                    i++;
                 } while (curNode != nullptr);
-                empty = empty && wasEmpty[threadIND];
-                wasEmpty[threadIND] = isFound;
 
-                if (!isFound && doEmptyCheck())
+                empty = empty && !isFound && local->wasFullRound && local->wasEmpty;
+                local->wasEmpty = !isFound;
+                local->wasFullRound = curNode == nullptr;
+
+                return isFound;
+            }
+
+
+            bool tryRemove(guard &toRemove, bool fromL, bool &success) {
+                int threadIND = acquireIndex();
+                guard startPoint;
+                bool empty = true, isFound = false;
+                success = true;
+                unsigned long startTime = platform::getTimestamp();
+                ThreadBuffer *neededBuffer;
+                isFound = findCandidate(toRemove, startPoint, neededBuffer, fromL, empty);
+
+                if (!isFound && empty)
                     return false;
 
                 if (isFound) {
@@ -240,6 +321,7 @@ namespace cds {
                     }
                 }
                 success = false;
+
                 return false;
             }
 
@@ -335,6 +417,11 @@ namespace cds {
             bool raw_pop(value_type &val, bool fromL) {
                 guard res;
                 bool success = false;
+                ThreadBuffer *local = localBuffer.get();
+                if (local == nullptr) {
+                    local = bufferList.demandBuffer();
+                    localBuffer.reset(local);
+                }
                 do {
                     tryRemove(res, fromL, success);
                     if (!success) {
@@ -426,8 +513,15 @@ namespace cds {
             }
 
             bool empty() {
+                // std::cout << "CHECK START "  <<  std::endl;
+                ThreadBuffer *local = localBuffer.get();
+                if (local == nullptr) {
+                    local = bufferList.demandBuffer();
+                    localBuffer.reset(local);
+                }
                 doEmptyCheck();
-                return doEmptyCheck();
+                bool temp = doEmptyCheck();
+                return temp;
             }
 
             void clear() {
@@ -695,12 +789,17 @@ namespace cds {
                 int garbageSize;
                 int index;
                 long lastIndex;
-                std::atomic<int> guestCounter;
                 std::atomic<bool> inserting;
                 timestamped_deque::Statistic *stats;
                 Logger *logger;
                 std::atomic<bool> occupied;
+                std::atomic<int> guestCounter;
             public:
+                std::vector<buffer_node *> *leftBorders;
+                std::vector<buffer_node *> *rightBorders;
+                bool wasEmpty;
+                bool wasFullRound;
+
                 void setIndex(int index) {
                     this->index = index;
                 }
@@ -719,6 +818,12 @@ namespace cds {
                 typedef typename cds::details::Allocator<ThreadBuffer::garbage_node, typename traits::gnode_allocator> gnode_allocator;
 
                 ThreadBuffer() : lastIndex(1) {
+                    std::cout << "!!!!!!!!!!!!!!!!!start" << std::endl;
+                    wasEmpty = false;
+                    wasFullRound = false;
+                    leftBorders = new std::vector<buffer_node*>();
+                    rightBorders = new std::vector<buffer_node*>();
+
                     garbageSize = 20;
                     buffer_node *newNode = buffernode_allocator().New();
                     newNode->index = 0;
@@ -732,7 +837,7 @@ namespace cds {
                     for (int i = 0; i < garbageSize; i++)
                         garbageArray[i].store(nullptr);
                     occupied.store(false);
-
+                    // std::cout << "!!!!!!!!!!!!!!!!stop" << guestCounter << std::endl;
                 }
 
                 ~ThreadBuffer() {
@@ -886,7 +991,6 @@ namespace cds {
                         }
                     }
                     guestCounter--;
-
                     return true;
                 }
 
@@ -990,7 +1094,6 @@ namespace cds {
                         stats->amountOfBuffers++;
                         List_node *tail = findTail();
                         newBuffer->tryOccupy();
-                        std::cout << "New buffer" << std::endl;
                         while (!tryInsert(tail, node))
                             tail = findTail();
                     }
@@ -1000,7 +1103,6 @@ namespace cds {
             public:
                 Buffer_list(timestamped_deque::Statistic *stats) {
                     this->stats = stats;
-                    std::cout << "New buffer" << std::endl;
                     ThreadBuffer *newBuffer = new ThreadBuffer();
                     newBuffer->setStat(stats);
                     head.store(new List_node(newBuffer));
@@ -1102,9 +1204,9 @@ namespace cds {
                 }
 
                 void write(std::string s) {
-//						int index = acquireIndex();
-//						LogNode* node = new LogNode(s, platform::getTimestamp(), index);
-//						threads.at(index)->push_back(node);
+//                      int index = acquireIndex();
+//                      LogNode* node = new LogNode(s, platform::getTimestamp(), index);
+//                      threads.at(index)->push_back(node);
                 }
 
                 void printAll() {

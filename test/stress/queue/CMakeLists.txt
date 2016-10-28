@@ -15,7 +15,7 @@ include_directories(
 )
 
 add_executable(${PACKAGE_NAME} ${CDSSTRESS_QUEUE_SOURCES} $<TARGET_OBJECTS:${CDSSTRESS_FRAMEWORK_LIBRARY}>)
-target_link_libraries(${PACKAGE_NAME} 
+target_link_libraries(${PACKAGE_NAME}
     ${CDS_SHARED_LIBRARY}
     ${GTEST_LIBRARY}
     ${Boost_THREAD_LIBRARY}
